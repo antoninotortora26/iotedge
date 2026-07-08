@@ -304,12 +304,16 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
 
                     // Check if we should prepare the update (pull image)
                     bool shouldPrepare = await this.updateScheduleManager.ShouldPrepareUpdateAsync(module, runtimeModule);
-                    Task<ICommand> prepareForUpdateCommand = shouldPrepare
-                        ? this.commandFactory.PrepareUpdateOnlyAsync(module, runtimeInfo)
-                        : Task.FromResult<ICommand>(NullCommand.Instance);
 
                     // Check if we should apply the update (replace container)
                     bool shouldApply = await this.updateScheduleManager.ShouldApplyUpdateAsync(currentModule, module, runtimeModule);
+
+                    // PrepareUpdateOnlyAsync should only be used when we want to pull but NOT apply
+                    // When shouldApply=true, CreateAsync/UpdateAsync already include PrepareUpdate internally
+                    Task<ICommand> prepareForUpdateCommand = (shouldPrepare && !shouldApply)
+                        ? this.commandFactory.PrepareUpdateOnlyAsync(module, runtimeInfo)
+                        : Task.FromResult<ICommand>(NullCommand.Instance);
+
                     Task<ICommand> createOrUpdateCommand = shouldApply
                         ? createUpdateCommandMaker(moduleWithIdentity)
                         : Task.FromResult<ICommand>(NullCommand.Instance);
