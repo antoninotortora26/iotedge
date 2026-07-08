@@ -41,17 +41,20 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
         readonly IEntityStore<string, ModuleState> store;
         readonly TimeSpan intensiveCareTime;
         readonly IRestartPolicyManager restartManager;
+        readonly IUpdateScheduleManager updateScheduleManager;
 
         public HealthRestartPlanner(
             ICommandFactory commandFactory,
             IEntityStore<string, ModuleState> store,
             TimeSpan intensiveCareTime,
-            IRestartPolicyManager restartManager)
+            IRestartPolicyManager restartManager,
+            IUpdateScheduleManager updateScheduleManager = null)
         {
             this.commandFactory = Preconditions.CheckNotNull(commandFactory, nameof(commandFactory));
             this.store = Preconditions.CheckNotNull(store, nameof(store));
             this.intensiveCareTime = intensiveCareTime;
             this.restartManager = Preconditions.CheckNotNull(restartManager, nameof(restartManager));
+            this.updateScheduleManager = updateScheduleManager ?? new UpdateScheduleManager();
         }
 
         public async Task<Plan> CreateShutdownPlanAsync(ModuleSet current)
@@ -146,12 +149,14 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                 added,
                 moduleIdentities,
                 runtimeInfo,
+                current,
                 m => this.commandFactory.CreateAsync(m, runtimeInfo));
 
             (IEnumerable<ICommand> upfrontPullCommandsForUpdated, IEnumerable<ICommand> updatedCommands) = await this.ProcessAddedUpdatedModules(
                 updateDeployed,
                 moduleIdentities,
                 runtimeInfo,
+                current,
                 m =>
                 {
                     current.TryGetModule(m.Module.Name, out IModule currentModule);
@@ -278,6 +283,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
             IList<IModule> modules,
             IImmutableDictionary<string, IModuleIdentity> moduleIdentities,
             IRuntimeInfo runtimeInfo,
+            ModuleSet currentModules,
             Func<IModuleWithIdentity, Task<ICommand>> createUpdateCommandMaker)
         {
             var upfrontPullTasks = new List<Task<ICommand>>();
@@ -289,8 +295,24 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                     var nonPullTasks = new List<Task<ICommand>>();
                     var moduleWithIdentity = new ModuleWithIdentity(module, moduleIdentity);
 
-                    Task<ICommand> prepareForUpdateCommand = this.commandFactory.PrepareUpdateAsync(module, runtimeInfo);
-                    Task<ICommand> createOrUpdateCommand = createUpdateCommandMaker(moduleWithIdentity);
+                    // Get the current (existing) module if it exists
+                    IRuntimeModule runtimeModule = null;
+                    if (currentModules.Modules.TryGetValue(module.Name, out IModule currentModule) && currentModule is IRuntimeModule)
+                    {
+                        runtimeModule = currentModule as IRuntimeModule;
+                    }
+
+                    // Check if we should prepare the update (pull image)
+                    bool shouldPrepare = await this.updateScheduleManager.ShouldPrepareUpdateAsync(module, runtimeModule);
+                    Task<ICommand> prepareForUpdateCommand = shouldPrepare
+                        ? this.commandFactory.PrepareUpdateOnlyAsync(module, runtimeInfo)
+                        : Task.FromResult<ICommand>(NullCommand.Instance);
+
+                    // Check if we should apply the update (replace container)
+                    bool shouldApply = await this.updateScheduleManager.ShouldApplyUpdateAsync(currentModule, module, runtimeModule);
+                    Task<ICommand> createOrUpdateCommand = shouldApply
+                        ? createUpdateCommandMaker(moduleWithIdentity)
+                        : Task.FromResult<ICommand>(NullCommand.Instance);
 
                     upfrontPullTasks.Add(prepareForUpdateCommand);
                     nonPullTasks.Add(createOrUpdateCommand);

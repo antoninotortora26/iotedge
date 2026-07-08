@@ -113,6 +113,14 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
 
         public const uint DefaultStartupOrder = uint.MaxValue;
 
+        // Image update timing control
+        public const string ImageUpdateModeVariableName = "IMAGE_UPDATE_MODE";
+        public const string ImageUpdateScheduleVariableName = "IMAGE_UPDATE_SCHEDULE";
+        public const string ImageUpdateModeImmediate = "immediate";
+        public const string ImageUpdateModeOnRestart = "on_restart";
+        public const string ImageUpdateModeScheduled = "scheduled";
+        public const string ImageUpdateModeOnRequest = "on_request";
+
         public static class Labels
         {
             public const string Version = "net.azure-devices.edge.version";

@@ -15,6 +15,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Commands
 
         public Task<ICommand> PrepareUpdateAsync(IModule module, IRuntimeInfo runtimeInfo) => Task.FromResult<ICommand>(NullCommand.Instance);
 
+        public Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo) => Task.FromResult<ICommand>(NullCommand.Instance);
+
         public Task<ICommand> UpdateAsync(IModule current, IModuleWithIdentity next, IRuntimeInfo runtimeInfo) => Task.FromResult<ICommand>(NullCommand.Instance);
 
         public Task<ICommand> UpdateEdgeAgentAsync(IModuleWithIdentity module, IRuntimeInfo runtimeInfo) => Task.FromResult<ICommand>(NullCommand.Instance);
