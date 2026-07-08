@@ -48,6 +48,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.CommandFactories
             return this.nullCommandFactory.PrepareUpdateAsync(module, runtimeInfo);
         }
 
+        public Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo)
+        {
+            return this.commandFactory.PrepareUpdateAsync(module, runtimeInfo);
+        }
+
         public async Task<ICommand> UpdateAsync(IModule current, IModuleWithIdentity next, IRuntimeInfo runtimeInfo)
         {
             Task<ICommand> prepareUpdate = this.commandFactory.PrepareUpdateAsync(next.Module, runtimeInfo);

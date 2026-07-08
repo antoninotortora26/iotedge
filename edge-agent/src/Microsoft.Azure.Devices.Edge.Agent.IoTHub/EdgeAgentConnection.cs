@@ -50,6 +50,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
         readonly IDeploymentMetrics deploymentMetrics;
         readonly Option<X509Certificate2> manifestTrustBundle;
         readonly TimeSpan twinPullOnConnectThrottleTime;
+        readonly IUpdateScheduleManager updateScheduleManager;
 
         Option<TwinCollection> desiredProperties;
         Option<TwinCollection> reportedProperties;
@@ -65,8 +66,9 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             IRequestManager requestManager,
             IDeviceManager deviceManager,
             IDeploymentMetrics deploymentMetrics,
-            Option<X509Certificate2> manifestTrustBundle)
-            : this(moduleClientProvider, desiredPropertiesSerDe, requestManager, deviceManager, true, DefaultConfigRefreshFrequency, TransientRetryStrategy, deploymentMetrics, manifestTrustBundle, DefaultTwinPullOnConnectThrottleTime)
+            Option<X509Certificate2> manifestTrustBundle,
+            IUpdateScheduleManager updateScheduleManager = null)
+            : this(moduleClientProvider, desiredPropertiesSerDe, requestManager, deviceManager, true, DefaultConfigRefreshFrequency, TransientRetryStrategy, deploymentMetrics, manifestTrustBundle, DefaultTwinPullOnConnectThrottleTime, updateScheduleManager)
         {
         }
 
@@ -78,8 +80,9 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             bool enableSubscriptions,
             TimeSpan configRefreshFrequency,
             IDeploymentMetrics deploymentMetrics,
-            Option<X509Certificate2> manifestTrustBundle)
-            : this(moduleClientProvider, desiredPropertiesSerDe, requestManager, deviceManager, enableSubscriptions, configRefreshFrequency, TransientRetryStrategy, deploymentMetrics, manifestTrustBundle, DefaultTwinPullOnConnectThrottleTime)
+            Option<X509Certificate2> manifestTrustBundle,
+            IUpdateScheduleManager updateScheduleManager = null)
+            : this(moduleClientProvider, desiredPropertiesSerDe, requestManager, deviceManager, enableSubscriptions, configRefreshFrequency, TransientRetryStrategy, deploymentMetrics, manifestTrustBundle, DefaultTwinPullOnConnectThrottleTime, updateScheduleManager)
         {
         }
 
@@ -93,7 +96,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             RetryStrategy retryStrategy,
             IDeploymentMetrics deploymentMetrics,
             Option<X509Certificate2> manifestTrustBundle,
-            TimeSpan twinPullOnConnectThrottleTime)
+            TimeSpan twinPullOnConnectThrottleTime,
+            IUpdateScheduleManager updateScheduleManager = null)
         {
             this.desiredPropertiesSerDe = Preconditions.CheckNotNull(desiredPropertiesSerDe, nameof(desiredPropertiesSerDe));
             this.deploymentConfigInfo = Option.None<DeploymentConfigInfo>();
@@ -108,6 +112,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             this.initTask = this.ForceRefreshTwin();
             this.manifestTrustBundle = manifestTrustBundle;
             this.twinPullOnConnectThrottleTime = twinPullOnConnectThrottleTime;
+            this.updateScheduleManager = updateScheduleManager ?? new UpdateScheduleManager();
         }
 
         public Option<TwinCollection> ReportedProperties => this.reportedProperties;
@@ -340,6 +345,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                         this.desiredProperties = Option.Some(twin.Properties.Desired);
                         this.reportedProperties = Option.Some(twin.Properties.Reported);
                         await this.UpdateDeploymentConfig(twin.Properties.Desired);
+                        await this.ProcessUpdateTriggersAsync(twin.Properties.Desired);
                         Events.TwinRefreshSuccess();
                     }
                     catch (Exception ex) when (!ex.IsFatal())
@@ -463,6 +469,52 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             return Task.CompletedTask;
         }
 
+        async Task ProcessUpdateTriggersAsync(TwinCollection desiredProperties)
+        {
+            try
+            {
+                if (desiredProperties.Contains("updateTriggers"))
+                {
+                    JObject triggers = desiredProperties["updateTriggers"];
+                    Events.ProcessingUpdateTriggers(triggers.ToString());
+
+                    var reportedTriggers = new TwinCollection();
+
+                    foreach (var property in triggers.Properties())
+                    {
+                        string moduleName = property.Name;
+                        var triggerData = property.Value as JObject;
+
+                        if (triggerData?["requestUpdate"]?.Value<bool>() == true)
+                        {
+                            Events.UpdateTriggerReceived(moduleName);
+                            await this.updateScheduleManager.SetUpdateRequestAsync(moduleName);
+
+                            // Update reported properties with feedback
+                            reportedTriggers[moduleName] = new
+                            {
+                                requestUpdate = true,
+                                timestamp = triggerData["timestamp"]?.Value<string>(),
+                                acknowledged = DateTime.UtcNow.ToString("o"),
+                                status = "pending"
+                            };
+                        }
+                    }
+
+                    if (reportedTriggers.Count > 0)
+                    {
+                        var patch = new TwinCollection();
+                        patch["updateTriggers"] = reportedTriggers;
+                        await this.UpdateReportedPropertiesAsync(patch);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Events.ErrorProcessingUpdateTriggers(ex);
+            }
+        }
+
         async Task<bool> WaitForDeviceClientInitialization() =>
             await Task.WhenAny(this.initTask, Task.Delay(DeviceClientInitializationWaitTime)) == this.initTask;
 
@@ -502,7 +554,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                 LogDesiredPropertiesAfterFullTwin,
                 PullingTwinHasBeenTriggeredFrequently,
                 StartedDelayedTwinPull,
-                FinishedDelayedTwinPull
+                FinishedDelayedTwinPull,
+                ProcessingUpdateTriggers,
+                UpdateTriggerReceived,
+                ErrorProcessingUpdateTriggers
             }
 
             public static void DesiredPropertiesPatchFailed(Exception exception)
@@ -655,6 +710,21 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             internal static void FinishedDelayedTwinPull()
             {
                 Log.LogDebug((int)EventIds.FinishedDelayedTwinPull, $"Finished delayed twin-pull");
+            }
+
+            internal static void ProcessingUpdateTriggers(string triggers)
+            {
+                Log.LogInformation((int)EventIds.ProcessingUpdateTriggers, $"Processing update triggers from desired properties: {triggers}");
+            }
+
+            internal static void UpdateTriggerReceived(string moduleName)
+            {
+                Log.LogInformation((int)EventIds.UpdateTriggerReceived, $"Update trigger received for module '{moduleName}'");
+            }
+
+            internal static void ErrorProcessingUpdateTriggers(Exception ex)
+            {
+                Log.LogError((int)EventIds.ErrorProcessingUpdateTriggers, ex, "Error processing update triggers from desired properties");
             }
         }
     }

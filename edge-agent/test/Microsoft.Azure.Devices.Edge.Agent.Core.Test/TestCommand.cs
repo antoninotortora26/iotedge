@@ -81,6 +81,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             return Task.FromResult<ICommand>(new TestCommand(TestCommandType.TestPrepareUpdate, module, this.Recorder));
         }
 
+        public Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo)
+        {
+            return this.PrepareUpdateAsync(module, runtimeInfo);
+        }
+
         public Task<ICommand> UpdateAsync(IModule current, IModuleWithIdentity next, IRuntimeInfo runtimeInfo)
         {
             return Task.FromResult<ICommand>(new TestCommand(TestCommandType.TestUpdate, next.Module, this.Recorder));
@@ -135,6 +140,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
         public Task<ICommand> PrepareUpdateAsync(IModule module, IRuntimeInfo runtimeInfo)
         {
             return Task.FromResult<ICommand>(new TestCommand(TestCommandType.TestPrepareUpdate, module, this.Recorder, true));
+        }
+
+        public Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo)
+        {
+            return this.PrepareUpdateAsync(module, runtimeInfo);
         }
 
         public Task<ICommand> UpdateAsync(IModule current, IModuleWithIdentity next, IRuntimeInfo runtimeInfo)

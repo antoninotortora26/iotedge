@@ -274,6 +274,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                 .As<IRestartPolicyManager>()
                 .SingleInstance();
 
+            // IUpdateScheduleManager
+            builder.Register(c => new UpdateScheduleManager())
+                .As<IUpdateScheduleManager>()
+                .SingleInstance();
+
             // IPlanner
             builder.Register(
                     async c =>
@@ -281,8 +286,9 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                         var commandFactory = c.Resolve<Task<ICommandFactory>>();
                         var entityStore = c.Resolve<Task<IEntityStore<string, ModuleState>>>();
                         var policyManager = c.Resolve<IRestartPolicyManager>();
+                        var updateScheduleManager = c.Resolve<IUpdateScheduleManager>();
 
-                        return new HealthRestartPlanner(await commandFactory, await entityStore, this.intensiveCareTime, policyManager) as IPlanner;
+                        return new HealthRestartPlanner(await commandFactory, await entityStore, this.intensiveCareTime, policyManager, updateScheduleManager) as IPlanner;
                     })
                 .As<Task<IPlanner>>()
                 .SingleInstance();

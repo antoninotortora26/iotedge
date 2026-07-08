@@ -1,0 +1,31 @@
+# Exclude build output - these contain Windows paths in project.assets.json
+# that break dotnet restore/publish inside Linux containers
+**/bin/
+**/obj/
+
+# Exclude test projects (not needed for edge-agent image)
+**/test/
+**/tests/
+
+# Exclude other runtimes not needed for the build
+edgelet/
+mqtt/
+smoke/
+snap/
+tools/
+scripts/
+samples/
+builds/
+doc/
+e2e_deployment_files/
+e2e_test_files/
+edge-hub/
+edge-modules/
+
+# Keep librocksdb directory (needed for the image)
+!edge-agent/docker/linux/librocksdb/
+
+# Exclude git and IDE files
+.git/
+.vs/
+.vscode/

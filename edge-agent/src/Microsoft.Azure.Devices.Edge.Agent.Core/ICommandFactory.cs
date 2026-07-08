@@ -11,6 +11,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
 
         Task<ICommand> PrepareUpdateAsync(IModule module, IRuntimeInfo runtimeInfo);
 
+        Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo);
+
         Task<ICommand> UpdateAsync(IModule current, IModuleWithIdentity next, IRuntimeInfo runtimeInfo);
 
         Task<ICommand> RemoveAsync(IModule module);

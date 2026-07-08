@@ -82,10 +82,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             builder.Register(
                 c =>
                 {
+                    var updateScheduleManager = c.Resolve<IUpdateScheduleManager>();
                     var requestHandlers = new List<IRequestHandler>
                     {
                         new PingRequestHandler(),
-                        new TaskStatusRequestHandler()
+                        new TaskStatusRequestHandler(),
+                        new TriggerUpdateRequestHandler(updateScheduleManager)
                     };
                     return new RequestManager(requestHandlers, this.requestTimeout) as IRequestManager;
                 })
@@ -157,9 +159,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                     var deviceClientprovider = c.Resolve<IModuleClientProvider>();
                     var requestManager = c.Resolve<IRequestManager>();
                     var deviceManager = c.Resolve<IDeviceManager>();
+                    var updateScheduleManager = c.Resolve<IUpdateScheduleManager>();
                     bool enableSubscriptions = !this.experimentalFeatures.DisableCloudSubscriptions;
                     var deploymentMetrics = c.Resolve<IDeploymentMetrics>();
-                    IEdgeAgentConnection edgeAgentConnection = new EdgeAgentConnection(deviceClientprovider, serde, requestManager, deviceManager, enableSubscriptions, this.configRefreshFrequency, deploymentMetrics, this.manifestTrustBundle);
+                    IEdgeAgentConnection edgeAgentConnection = new EdgeAgentConnection(deviceClientprovider, serde, requestManager, deviceManager, enableSubscriptions, this.configRefreshFrequency, deploymentMetrics, this.manifestTrustBundle, updateScheduleManager);
                     return edgeAgentConnection;
                 })
                 .As<IEdgeAgentConnection>()
