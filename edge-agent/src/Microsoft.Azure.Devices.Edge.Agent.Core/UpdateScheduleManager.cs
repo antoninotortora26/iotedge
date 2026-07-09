@@ -263,6 +263,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
 
         private bool IsModuleRestarting(IModule module, IRuntimeModule runtimeModule)
         {
+            // If runtimeModule is null, the module doesn't exist yet, so it's not restarting
+            if (runtimeModule == null)
+            {
+                return false;
+            }
+
             // Simple heuristic: if the module's last start time is very recent (within last minute),
             // it probably just restarted
             if (runtimeModule.LastStartTimeUtc != DateTime.MinValue)

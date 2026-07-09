@@ -196,8 +196,10 @@ Segui il semantic versioning `MAJOR.MINOR.PATCH`:
 |----------|------------|---------------------------------------------------------------------|
 | 1.6.1    | 2026-06-04 | Prima versione con UpdateScheduleManager, Direct Method e Twin      |
 | 1.7.0    | 2026-07-08 | Build con processo Microsoft ufficiale, rimozione simboli debug     |
+| 1.7.1    | 2026-07-09 | Fix PrepareUpdateOnlyAsync logic (488 test passing)                 |
+| 1.7.2    | 2026-07-09 | Fix NullReferenceException in IsModuleRestarting                    |
 
-**Prossima versione suggerita**: 1.7.1
+**Prossima versione suggerita**: 1.7.3
 
 ---
 
