@@ -198,8 +198,13 @@ Segui il semantic versioning `MAJOR.MINOR.PATCH`:
 | 1.7.0    | 2026-07-08 | Build con processo Microsoft ufficiale, rimozione simboli debug     |
 | 1.7.1    | 2026-07-09 | Fix PrepareUpdateOnlyAsync logic (488 test passing)                 |
 | 1.7.2    | 2026-07-09 | Fix NullReferenceException in IsModuleRestarting                    |
+| 1.7.3    | 2026-07-10 | Module update status tracking (idle/downloaded/applied)             |
+| 1.7.4    | 2026-07-10 | Periodic sync of module status to reported properties (15s)         |
+| 1.7.5    | 2026-07-10 | Centralized config via desired properties (moduleUpdatePolicy)      |
+| 1.5.5    | 2026-07-14 | Simplified env-based config: DEFAULT_IMAGE_UPDATE_MODE on edgeAgent |
+| 1.5.6    | 2026-07-15 | Twin size optimization: embedded updateStatus in modules            |
 
-**Prossima versione suggerita**: 1.7.3
+**Prossima versione suggerita**: 1.5.7
 
 ---
 
@@ -315,7 +320,7 @@ cd ../..
 Copy-Item -Recurse target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker/linux/librocksdb target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/librocksdb
 
 # 3. Docker Build & Push
-$VERSION = "1.7.1"  # ⚠️ AGGIORNA!
-docker buildx build --platform linux/amd64 --tag "cnrdwfweuts001.azurecr.io/azureiotedge-agent-ava:$VERSION" --file target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker/linux/Dockerfile --load target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/
-docker push "cnrdwfweuts001.azurecr.io/azureiotedge-agent-ava:$VERSION"
+$VERSION = "1.5.6"  # ⚠️ AGGIORNA!
+docker buildx build --platform linux/amd64 --tag "cnrdwfweuts001.azurecr.io/azureiotedge-agent:$VERSION" --file target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker/linux/Dockerfile --load target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/
+docker push "cnrdwfweuts001.azurecr.io/azureiotedge-agent:$VERSION"
 ```

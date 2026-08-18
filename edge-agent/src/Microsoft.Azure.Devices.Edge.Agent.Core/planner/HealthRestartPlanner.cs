@@ -37,6 +37,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
 
     public class HealthRestartPlanner : IPlanner
     {
+        static readonly ILogger Log = Logger.Factory.CreateLogger<HealthRestartPlanner>();
+
         readonly ICommandFactory commandFactory;
         readonly IEntityStore<string, ModuleState> store;
         readonly TimeSpan intensiveCareTime;
@@ -308,6 +310,25 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                     // Check if we should apply the update (replace container)
                     bool shouldApply = await this.updateScheduleManager.ShouldApplyUpdateAsync(currentModule, module, runtimeModule);
 
+                    // Update module status in reported properties
+                    string updateMode = this.ExtractUpdateMode(module);
+
+                    if (shouldApply)
+                    {
+                        // Update will be applied - mark as Applied
+                        this.updateScheduleManager.SetModuleUpdateState(module.Name, ModuleUpdateState.Applied, updateMode);
+                    }
+                    else if (shouldPrepare)
+                    {
+                        // Only preparing (downloading) - mark as Downloaded
+                        this.updateScheduleManager.SetModuleUpdateState(module.Name, ModuleUpdateState.Downloaded, updateMode);
+                    }
+                    else
+                    {
+                        // No action - mark as Idle
+                        this.updateScheduleManager.SetModuleUpdateState(module.Name, ModuleUpdateState.Idle, updateMode);
+                    }
+
                     // PrepareUpdateOnlyAsync should only be used when we want to pull but NOT apply
                     // When shouldApply=true, CreateAsync/UpdateAsync already include PrepareUpdate internally
                     Task<ICommand> prepareForUpdateCommand = (shouldPrepare && !shouldApply)
@@ -450,6 +471,24 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
             }
 
             return updateRuntimeCommands;
+        }
+
+        private string ExtractUpdateMode(IModule module)
+        {
+            try
+            {
+                if (module.Env?.ContainsKey(Constants.ImageUpdateModeVariableName) ?? false)
+                {
+                    string modeValue = module.Env[Constants.ImageUpdateModeVariableName]?.Value;
+                    return string.IsNullOrWhiteSpace(modeValue) ? Constants.ImageUpdateModeImmediate : modeValue;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning(ex, "Failed to extract update mode for module {name}", module.Name);
+            }
+
+            return Constants.ImageUpdateModeImmediate;
         }
 
         static class Events

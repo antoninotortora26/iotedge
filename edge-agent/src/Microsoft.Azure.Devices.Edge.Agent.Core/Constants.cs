@@ -116,6 +116,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         // Image update timing control
         public const string ImageUpdateModeVariableName = "IMAGE_UPDATE_MODE";
         public const string ImageUpdateScheduleVariableName = "IMAGE_UPDATE_SCHEDULE";
+        public const string DefaultImageUpdateModeVariableName = "DEFAULT_IMAGE_UPDATE_MODE";
+        public const string DefaultImageUpdateScheduleVariableName = "DEFAULT_IMAGE_UPDATE_SCHEDULE";
         public const string ImageUpdateModeImmediate = "immediate";
         public const string ImageUpdateModeOnRestart = "on_restart";
         public const string ImageUpdateModeScheduled = "scheduled";
