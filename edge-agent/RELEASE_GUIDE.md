@@ -33,6 +33,8 @@ Questo metodo usa gli script bash ufficiali di Microsoft tramite Git Bash.
 
 #### Step 1: Preparazione librocksdb.so
 
+**Nota**: Questo step va fatto **solo la prima volta** o quando si aggiorna la versione di RocksDB, veriffica che non sia già presente in `edge-agent/docker/linux/librocksdb/linux/amd64/librocksdb.so`.
+
 La libreria RocksDB è necessaria per il funzionamento dell'Edge Agent. Estraiamola dall'immagine ufficiale Microsoft:
 
 ```powershell
@@ -49,7 +51,6 @@ docker cp temp-agent:/usr/local/lib/librocksdb.so edge-agent/docker/linux/libroc
 docker rm temp-agent
 ```
 
-**Nota**: Questo step va fatto **solo la prima volta** o quando si aggiorna la versione di RocksDB.
 
 #### Step 2: Build dei Binari con buildBranch.sh
 
@@ -151,11 +152,17 @@ dotnet publish -c Release `
   -o target/publish/Microsoft.Azure.Devices.Edge.Agent.Service
 ```
 
-#### Step 3: Copia librocksdb
+#### Step 3: Copia file Docker e librocksdb
 
 ```powershell
-Copy-Item -Recurse `
-  target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker/linux/librocksdb `
+# Copia la directory docker completa
+Copy-Item -Recurse -Force `
+  edge-agent/docker `
+  target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker
+
+# Copia librocksdb nella root dell'app
+Copy-Item -Recurse -Force `
+  edge-agent/docker/linux/librocksdb `
   target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/librocksdb
 ```
 
@@ -203,8 +210,9 @@ Segui il semantic versioning `MAJOR.MINOR.PATCH`:
 | 1.7.5    | 2026-07-10 | Centralized config via desired properties (moduleUpdatePolicy)      |
 | 1.5.5    | 2026-07-14 | Simplified env-based config: DEFAULT_IMAGE_UPDATE_MODE on edgeAgent |
 | 1.5.6    | 2026-07-15 | Twin size optimization: embedded updateStatus in modules            |
+| 1.6.1    | 2026-08-18 | Allineamento con versione Microsoft upstream (net10.0)              |
 
-**Prossima versione suggerita**: 1.5.7
+**Prossima versione suggerita**: 1.6.2
 
 ---
 
@@ -306,21 +314,25 @@ git checkout -- **/*.csproj **/*packages.lock.json Microsoft.Azure.Devices.Edge.
 ## 🎯 Quick Reference - Rilascio Rapido
 
 ```powershell
-# 1. Setup (solo prima volta)
+# 1. Setup (solo prima volta - controlla se librocksdb.so esiste già)
 cd $env:USERPROFILE\Documents\GitSource\iotedge
 docker pull mcr.microsoft.com/azureiotedge-agent:1.5
 docker create --name temp-agent mcr.microsoft.com/azureiotedge-agent:1.5
 docker cp temp-agent:/usr/local/lib/librocksdb.so edge-agent/docker/linux/librocksdb/linux/amd64/librocksdb.so
 docker rm temp-agent
 
-# 2. Build (ogni rilascio)
-cd scripts/linux
-& "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe" ./buildBranch.sh --config Release
-cd ../..
-Copy-Item -Recurse target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker/linux/librocksdb target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/librocksdb
+# 2. Build con dotnet publish (ogni rilascio)
+cd edge-agent/src/Microsoft.Azure.Devices.Edge.Agent.Service
+dotnet publish -c Release -o $env:USERPROFILE\Documents\GitSource\iotedge\target\publish\Microsoft.Azure.Devices.Edge.Agent.Service
+cd $env:USERPROFILE\Documents\GitSource\iotedge
 
-# 3. Docker Build & Push
-$VERSION = "1.5.6"  # ⚠️ AGGIORNA!
+# 3. Copia file Docker
+Copy-Item -Recurse -Force edge-agent/docker target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker
+Copy-Item -Recurse -Force edge-agent/docker/linux/librocksdb target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/librocksdb
+
+# 4. Docker Build & Push
+$VERSION = "1.6.1"  # ⚠️ AGGIORNA!
+az acr login --name cnrdwfweuts001
 docker buildx build --platform linux/amd64 --tag "cnrdwfweuts001.azurecr.io/azureiotedge-agent:$VERSION" --file target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/docker/linux/Dockerfile --load target/publish/Microsoft.Azure.Devices.Edge.Agent.Service/
 docker push "cnrdwfweuts001.azurecr.io/azureiotedge-agent:$VERSION"
 ```
