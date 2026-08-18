@@ -51,18 +51,26 @@ Behavior:
 Use case: Manual control, coordinated multi-module updates
 ```
 
-## Environment Variables
+## Configuration
 
-Configure update behavior by setting environment variables in your module deployment manifest.
+Configure update behavior by setting environment variables in your deployment manifest:
+
+### Module-Specific Configuration
+
+Set `IMAGE_UPDATE_MODE` and `IMAGE_UPDATE_SCHEDULE` on individual modules to control their update behavior.
 
 ### IMAGE_UPDATE_MODE
-Specifies the update timing strategy.
+Specifies the update timing strategy for a specific module.
 
 ```json
 {
-  "env": {
-    "IMAGE_UPDATE_MODE": {
-      "value": "on_restart"
+  "modules": {
+    "myModule": {
+      "env": {
+        "IMAGE_UPDATE_MODE": {
+          "value": "on_restart"
+        }
+      }
     }
   }
 }
@@ -71,16 +79,20 @@ Specifies the update timing strategy.
 **Valid values:** `immediate` (default), `on_restart`, `scheduled`, `on_request`
 
 ### IMAGE_UPDATE_SCHEDULE
-Required for `scheduled` mode. Specifies the time window (24-hour HH:mm format).
+Required for `scheduled` mode on a specific module. Specifies the time window (24-hour HH:mm format).
 
 ```json
 {
-  "env": {
-    "IMAGE_UPDATE_MODE": {
-      "value": "scheduled"
-    },
-    "IMAGE_UPDATE_SCHEDULE": {
-      "value": "23:00"
+  "modules": {
+    "myModule": {
+      "env": {
+        "IMAGE_UPDATE_MODE": {
+          "value": "scheduled"
+        },
+        "IMAGE_UPDATE_SCHEDULE": {
+          "value": "23:00"
+        }
+      }
     }
   }
 }
@@ -89,9 +101,76 @@ Required for `scheduled` mode. Specifies the time window (24-hour HH:mm format).
 **Format:** `HH:mm` in 24-hour format (00:00-23:59)  
 **Behavior:** Image updates allowed within ±5 minutes of specified time
 
+### Default Configuration on $edgeAgent
+
+Set `DEFAULT_IMAGE_UPDATE_MODE` and `DEFAULT_IMAGE_UPDATE_SCHEDULE` on **$edgeAgent** to specify default behavior for all modules that don't have their own `IMAGE_UPDATE_MODE` configured.
+
+```json
+{
+  "$edgeAgent": {
+    "properties.desired": {
+      "systemModules": {
+        "edgeAgent": {
+          "env": {
+            "DEFAULT_IMAGE_UPDATE_MODE": {
+              "value": "on_restart"
+            },
+            "DEFAULT_IMAGE_UPDATE_SCHEDULE": {
+              "value": "02:00"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**Configuration Priority:**
+
+1. **Module-specific** `IMAGE_UPDATE_MODE` (highest priority)
+2. **Default from $edgeAgent** `DEFAULT_IMAGE_UPDATE_MODE`
+3. **Hardcoded default**: `immediate`
+
+
+
 ## Examples
 
 ### Example 1: Production Module with On-Restart Updates
+
+**With default configuration on $edgeAgent:**
+
+```json
+{
+  "$edgeAgent": {
+    "properties.desired": {
+      "systemModules": {
+        "edgeAgent": {
+          "env": {
+            "DEFAULT_IMAGE_UPDATE_MODE": {
+              "value": "on_restart"
+            }
+          }
+        }
+      },
+      "modules": {
+        "myModule": {
+          "version": "1.0",
+          "type": "docker",
+          "status": "running",
+          "restartPolicy": "on-failure",
+          "settings": {
+            "image": "myregistry.azurecr.io/mymodule:latest",
+            "createOptions": "{}"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**With module-specific configuration:**
 
 ```json
 {
@@ -122,6 +201,31 @@ Required for `scheduled` mode. Specifies the time window (24-hour HH:mm format).
 - Minimizes unexpected downtime
 
 ### Example 2: Maintenance Window Updates
+
+**With default configuration on $edgeAgent:**
+
+```json
+{
+  "$edgeAgent": {
+    "properties.desired": {
+      "systemModules": {
+        "edgeAgent": {
+          "env": {
+            "DEFAULT_IMAGE_UPDATE_MODE": {
+              "value": "scheduled"
+            },
+            "DEFAULT_IMAGE_UPDATE_SCHEDULE": {
+              "value": "02:00"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**With module-specific configuration:**
 
 ```json
 {
@@ -154,23 +258,62 @@ Required for `scheduled` mode. Specifies the time window (24-hour HH:mm format).
 - Outside this window, module uses current image
 - Perfect for data centers with off-peak hours
 
-### Example 3: No Update Mode (Keep Current Image)
+### Example 3: Mixed Policy (Different Modes Per Module)
+
+**Combination of default and module-specific:**
 
 ```json
 {
-  "env": {
-    "IMAGE_UPDATE_MODE": {
-      "value": "on_request"
+  "$edgeAgent": {
+    "properties.desired": {
+      "systemModules": {
+        "edgeAgent": {
+          "env": {
+            "DEFAULT_IMAGE_UPDATE_MODE": {
+              "value": "on_restart"
+            }
+          }
+        }
+      },
+      "modules": {
+        "criticalService": {
+          "env": {
+            "IMAGE_UPDATE_MODE": {
+              "value": "immediate"
+            }
+          }
+        },
+        "batchProcessor": {
+          "env": {
+            "IMAGE_UPDATE_MODE": {
+              "value": "scheduled"
+            },
+            "IMAGE_UPDATE_SCHEDULE": {
+              "value": "23:00"
+            }
+          }
+        },
+        "manualModule": {
+          "env": {
+            "IMAGE_UPDATE_MODE": {
+              "value": "on_request"
+            }
+          }
+        },
+        "standardModule": {
+          // Uses default: on_restart
+        }
+      }
     }
   }
 }
 ```
 
 **Result:**
-- New image is pulled immediately in background
-- Module continues indefinitely with current image
-- No automatic apply occurs
-- Apply only happens when explicitly requested
+- `criticalService`: Updates immediately (module-specific override)
+- `batchProcessor`: Updates at 23:00 daily (module-specific override)
+- `manualModule`: Updates only on request (module-specific override)
+- `standardModule`: Updates on restart (uses default from edgeAgent)
 
 ## Triggering Updates in `on_request` Mode
 
@@ -291,6 +434,126 @@ az iot hub module-twin update \
 | **Feedback** | JSON response | Reported properties updated |
 | **Use case** | Automated triggers, local orchestration | Manual testing, cloud orchestration |
 
+## Module Update Status (Reported Properties)
+
+The Edge Agent automatically reports the update status of all modules to IoT Hub via reported properties. This provides visibility into the update lifecycle.
+
+### Status Synchronization
+
+- **Frequency**: Every **15 seconds**
+- **Property**: `$edgeAgent` → `properties.reported.modules[moduleName].updateStatus`
+- **Content**: State and update mode for each module (image and timestamp available via existing properties)
+
+### Module States
+
+Each module can be in one of three states:
+
+| State | Description | When It Occurs |
+|-------|-------------|----------------|
+| **idle** | No update in progress | Module running with current image, no new deployment |
+| **downloaded** | Image downloaded, not yet applied | New image pulled, waiting for trigger (on_restart/scheduled/on_request) |
+| **applied** | Update applied, module restarted | Module updated with new image |
+
+### Example Reported Properties
+
+```json
+{
+  "properties": {
+    "reported": {
+      "modules": {
+        "myModule": {
+          "updateStatus": {
+            "state": "downloaded",
+            "updateMode": "on_restart"
+          },
+          "runtimeStatus": "running",
+          "settings": {
+            "image": "myregistry.azurecr.io/mymodule:2.0",
+            "imageHash": "sha256:..."
+          },
+          "lastStartTimeUtc": "2026-07-15T10:30:45.123Z"
+        },
+        "criticalService": {
+          "updateStatus": {
+            "state": "applied",
+            "updateMode": "immediate"
+          },
+          "runtimeStatus": "running",
+          "settings": {
+            "image": "myregistry.azurecr.io/critical:1.5",
+            "imageHash": "sha256:..."
+          },
+          "lastStartTimeUtc": "2026-07-15T10:25:12.456Z"
+        },
+        "scheduledModule": {
+          "updateStatus": {
+            "state": "idle",
+            "updateMode": "scheduled"
+          },
+          "runtimeStatus": "running",
+          "settings": {
+            "image": "myregistry.azurecr.io/scheduled:1.2",
+            "imageHash": "sha256:..."
+          },
+          "lastStartTimeUtc": "2026-07-15T10:20:00.789Z"
+        }
+      },
+      "updateTriggers": {
+        "myModule": {
+          "requestUpdate": true,
+          "timestamp": "2026-07-15T10:00:00Z",
+          "acknowledged": "2026-07-15T10:00:15Z",
+          "status": "pending"
+        }
+      }
+    }
+  }
+}s.*.updateStatus'
+
+# Get status for specific module
+az iot hub module-twin show \
+  --hub-name <your-hub> \
+  --device-id <your-device> \
+  --module-id '$edgeAgent' \
+  --query 'properties.reported.modules.myModule.updateStatus
+3. Go to "Module Identity Twin"
+4. View `properties.reported.moduleUpdateStatus`
+
+**From Azure CLI:**
+```bash
+# Get all module update statuses
+az iot hub module-twin show \
+  --hub-name <your-hub> \
+  --device-id <your-device> \
+  --module-id '$edgeAgent' \
+  --query 'properties.reported.moduleUpdateStatus'
+
+# Get status for specific module
+az iot hub module-twin show \
+  --hub-name <your-hub> \
+  --device-id <your-device> \
+  --module-id '$edgeAgent' \
+  --query 'properties.reported.moduleUpdateStatus.myModule'
+```
+
+### Use Cases
+
+- **Monitoring**: Track which modules have downloaded updates but not yet applied them
+- **Compliance**: Verify update timing policies are being followed
+- **Troubleshooting**: Identify modules stuck in "downloaded" state
+- **Orchestration**: External systems can monitor update progress and coordinate multi-device updates
+- **Alerting**: Set up alerts when critical modules remain in "downloaded" state for too long
+
+### Structure Optimization
+
+The `updateStatus` is embedded directly within each module's reported properties to:
+- ✅ **Avoid duplication**: Image name already available in `settings.image`
+- ✅ **Avoid redundancy**: Timestamp available in `$metadata.$lastUpdated` and `lastStartTimeUtc`
+- ✅ **Minimize twin size**: Saves ~1.8 KB for 21 modules (~75% reduction vs separate object)
+- ✅ **Logical grouping**: Update status belongs with module data
+
+This optimization is critical when approaching the **32 KB twin size limit**, especially in deployments with many modules.
+
 ## Implementation Details
 
 ### Architecture
@@ -298,28 +561,33 @@ az iot hub module-twin update \
 The timing control is implemented via:
 
 1. **UpdateScheduleManager** - Core logic for determining if/when updates should occur
-2. **HealthRestartPlanner modifications** - Integrates schedule manager into planning phase
-3. **Environment variable parsing** - Extracts configuration from module Env
+2. **EdgeAgentConnection** - Processes `DEFAULT_IMAGE_UPDATE_MODE` and `DEFAULT_IMAGE_UPDATE_SCHEDULE` from `$edgeAgent` environment variables
+3. **HealthRestartPlanner modifications** - Integrates schedule manager into planning phase
+4. **Environment variable resolution** - Supports module-specific overrides and default configuration
 
-### Processing Flow
+### Configuration Resolution Flow
 
 ```
-Deployment Received
+Deployment Update Received
     ↓
+EdgeAgentConnection.ProcessDefaultConfiguration()
+    ├─ Read DEFAULT_IMAGE_UPDATE_MODE from $edgeAgent env
+    ├─ Read DEFAULT_IMAGE_UPDATE_SCHEDULE from $edgeAgent env
+    └─ Call UpdateScheduleManager.SetDefaultConfiguration()
+        ↓
 HealthRestartPlanner.PlanAsync()
     ↓
 ProcessAddedUpdatedModules()
     ├─ For each module:
-    │   ├─ Ask UpdateScheduleManager: "Should prepare (pull)?"
-    │   │   ├─ If image is already present → false (skip pull, already up to date)
-    │   │   └─ Otherwise → true (pull immediately, regardless of mode)
-    │   ├─ If NO → PrepareUpdateCommand becomes NullCommand (not executed)
-    │   ├─ Ask UpdateScheduleManager: "Should apply?"
-    │   │   └─ Returns: true/false based on IMAGE_UPDATE_MODE + current state
-    │   ├─ If NO → CreateOrUpdateCommand becomes NullCommand (not executed)
-    │   └─ NullCommands are filtered out and not executed
+    │   ├─ UpdateScheduleManager.GetUpdateMode(module)
+    │   │   ├─ 1. Check module IMAGE_UPDATE_MODE env var
+    │   │   ├─ 2. Check default from edgeAgent (DEFAULT_IMAGE_UPDATE_MODE)
+    │   │   └─ 3. Return "immediate" (hardcoded default)
+    │   ├─ Ask: "Should prepare (pull)?"
+    │   ├─ Ask: "Should apply?"
+    │   └─ Generate commands (NullCommand if no action needed)
     ↓
-Commands Executed (pull always happens if image is new; apply only if mode allows)
+Commands Executed
 ```
 
 ### State Tracking
@@ -327,6 +595,7 @@ Commands Executed (pull always happens if image is new; apply only if mode allow
 - **Last Update Attempt**: Prevents repeated updates within same hour for scheduled mode
 - **Runtime Module Status**: Checks if module is currently running
 - **Module Restart Detection**: Monitors LastStartTimeUtc to detect recent restarts (within 1 minute)
+- **Default Configuration**: Cached from edgeAgent environment variables, updated on deployment changes
 
 ## Behavior by Mode and Condition
 
@@ -372,17 +641,17 @@ Reason: Update multiple modules in sequence, coordinated via messages
 
 ## Error Handling
 
-- **Invalid IMAGE_UPDATE_MODE**: Defaults to `immediate` with warning logged
+- **Invalid IMAGE_UPDATE_MODE**: Defaults to configured default or `immediate` with warning logged
 - **Invalid IMAGE_UPDATE_SCHEDULE format**: Falls back to `no update` for that cycle with error logged
 - **Missing schedule for scheduled mode**: Logs warning, skips updates for that module
-- **Runtime errors**: Defaults to `immediate` to avoid blocking updates
+- **Runtime errors**: Defaults to configured default or `immediate` to avoid blocking updates
 
 ## Future Enhancements
 
 1. ✅ **Direct method** on edgeAgent to trigger on_request updates (Implemented in v1.6.1)
 2. ✅ **Desired properties** support for triggering updates (Implemented in v1.6.1)
-3. ✅ **Update status reporting** in module twins via reported properties (Implemented in v1.6.1)
-4. **Cron-like scheduling** with more complex time patterns
-5. **Rate limiting** for scheduled mode (e.g., max 1 update per day)
-6. **Rollback triggers** if module health degrades after update
-7. **MQTT message routing** for triggering updates from other modules
+3. ✅ **Update status reporting** in module twins via reported properties (Implemented in v1.7.3)
+4. ✅ **Default configuration** via edgeAgent environment variables (Implemented in v1.5.5)
+5. **Cron-like scheduling** with more complex time patterns
+6. **Rate limiting** for scheduled mode (e.g., max 1 update per day)
+7. **Rollback triggers** if module health degrades after update

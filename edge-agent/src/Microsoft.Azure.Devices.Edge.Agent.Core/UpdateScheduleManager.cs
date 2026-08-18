@@ -10,6 +10,31 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
     using Microsoft.Extensions.Logging;
 
     /// <summary>
+    /// Represents the state of a module update.
+    /// </summary>
+    public enum ModuleUpdateState
+    {
+        /// <summary>No update in progress</summary>
+        Idle,
+
+        /// <summary>Image downloaded but not yet applied</summary>
+        Downloaded,
+
+        /// <summary>Update applied, module restarted with new image</summary>
+        Applied
+    }
+
+    /// <summary>
+    /// Status information for a module update.
+    /// </summary>
+    public class ModuleUpdateStatus
+    {
+        public ModuleUpdateState State { get; set; }
+
+        public string UpdateMode { get; set; }
+    }
+
+    /// <summary>
     /// Manages the timing and scheduling of image updates for modules.
     /// Supports four modes:
     /// - immediate: Update image as soon as available (default)
@@ -50,6 +75,27 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         /// <param name="moduleName">The name of the module.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
         Task ClearUpdateRequestAsync(string moduleName);
+
+        /// <summary>
+        /// Sets the update state for a module.
+        /// </summary>
+        /// <param name="moduleName">The name of the module.</param>
+        /// <param name="state">The update state.</param>
+        /// <param name="updateMode">The update mode.</param>
+        void SetModuleUpdateState(string moduleName, ModuleUpdateState state, string updateMode);
+
+        /// <summary>
+        /// Gets all module update statuses.
+        /// </summary>
+        /// <returns>Dictionary of module update statuses.</returns>
+        IDictionary<string, ModuleUpdateStatus> GetModuleUpdateStatuses();
+
+        /// <summary>
+        /// Sets the default update configuration from edgeAgent environment variables.
+        /// </summary>
+        /// <param name="defaultMode">The default update mode (e.g., on_restart, immediate).</param>
+        /// <param name="defaultSchedule">The default schedule for scheduled mode (e.g., "23:00").</param>
+        void SetDefaultConfiguration(string defaultMode, string defaultSchedule);
     }
 
     public class UpdateScheduleManager : IUpdateScheduleManager
@@ -57,6 +103,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         static readonly ILogger Log = Logger.Factory.CreateLogger<UpdateScheduleManager>();
         private readonly Dictionary<string, bool> updateRequestedModules = new Dictionary<string, bool>();
         private readonly Dictionary<string, DateTime> lastUpdateAttempt = new Dictionary<string, DateTime>();
+        private readonly Dictionary<string, ModuleUpdateStatus> moduleUpdateStatuses = new Dictionary<string, ModuleUpdateStatus>();
+        private readonly object stateLock = new object();
+        private string defaultUpdateMode = null;
+        private string defaultUpdateSchedule = null;
 
         public Task<bool> ShouldPrepareUpdateAsync(IModule module, IRuntimeModule runtimeModule)
         {
@@ -182,30 +232,90 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             return TaskEx.Done;
         }
 
+        public void SetModuleUpdateState(string moduleName, ModuleUpdateState state, string updateMode)
+        {
+            lock (this.stateLock)
+            {
+                this.moduleUpdateStatuses[moduleName] = new ModuleUpdateStatus
+                {
+                    State = state,
+                    UpdateMode = updateMode
+                };
+
+                Log.LogInformation(
+                    "[ImageUpdate] Module '{name}' state updated: {state}, mode: {mode}",
+                    moduleName,
+                    state,
+                    updateMode);
+            }
+        }
+
+        public IDictionary<string, ModuleUpdateStatus> GetModuleUpdateStatuses()
+        {
+            lock (this.stateLock)
+            {
+                // Return a copy to avoid concurrency issues
+                return new Dictionary<string, ModuleUpdateStatus>(this.moduleUpdateStatuses);
+            }
+        }
+
+        public void SetDefaultConfiguration(string defaultMode, string defaultSchedule)
+        {
+            this.defaultUpdateMode = defaultMode;
+            this.defaultUpdateSchedule = defaultSchedule;
+            Log.LogInformation(
+                "[ImageUpdate] Default configuration set: mode={mode}, schedule={schedule}",
+                defaultMode ?? "<not set>",
+                defaultSchedule ?? "<not set>");
+        }
+
         private string GetUpdateMode(IModule module)
         {
+            // Priority 1: Check module-specific environment variable
             if (module.Env?.ContainsKey(Constants.ImageUpdateModeVariableName) ?? false)
             {
                 string modeValue = module.Env[Constants.ImageUpdateModeVariableName]?.Value;
-                return string.IsNullOrWhiteSpace(modeValue) ? Constants.ImageUpdateModeImmediate : modeValue;
+                if (!string.IsNullOrWhiteSpace(modeValue))
+                {
+                    Log.LogDebug("[ImageUpdate] Module '{name}': using mode '{mode}' from module environment variable", module.Name, modeValue);
+                    return modeValue;
+                }
             }
 
-            return Constants.ImageUpdateModeImmediate; // Default
+            // Priority 2: Check default configuration from edgeAgent environment variables
+            if (!string.IsNullOrWhiteSpace(this.defaultUpdateMode))
+            {
+                Log.LogDebug("[ImageUpdate] Module '{name}': using mode '{mode}' from edgeAgent default configuration", module.Name, this.defaultUpdateMode);
+                return this.defaultUpdateMode;
+            }
+
+            // Priority 3: Hardcoded default
+            Log.LogDebug("[ImageUpdate] Module '{name}': using hardcoded default mode 'immediate'", module.Name);
+            return Constants.ImageUpdateModeImmediate;
         }
 
         private Task<bool> ShouldUpdateAtScheduledTimeAsync(IModule module)
         {
             try
             {
-                if (!(module.Env?.ContainsKey(Constants.ImageUpdateScheduleVariableName) ?? false))
+                // Get schedule with priority: module env var > default config > none
+                string scheduleValue = null;
+
+                // Priority 1: Module-specific environment variable
+                if (module.Env?.ContainsKey(Constants.ImageUpdateScheduleVariableName) ?? false)
                 {
-                    Log.LogWarning("[ImageUpdate] Module '{name}': scheduled mode but no IMAGE_UPDATE_SCHEDULE configured, skipping apply", module.Name);
-                    return Task.FromResult(false);
+                    scheduleValue = module.Env[Constants.ImageUpdateScheduleVariableName]?.Value;
                 }
 
-                string scheduleValue = module.Env[Constants.ImageUpdateScheduleVariableName]?.Value;
+                // Priority 2: Default configuration from edgeAgent
                 if (string.IsNullOrWhiteSpace(scheduleValue))
                 {
+                    scheduleValue = this.defaultUpdateSchedule;
+                }
+
+                if (string.IsNullOrWhiteSpace(scheduleValue))
+                {
+                    Log.LogWarning("[ImageUpdate] Module '{name}': scheduled mode but no schedule configured, skipping apply", module.Name);
                     return Task.FromResult(false);
                 }
 

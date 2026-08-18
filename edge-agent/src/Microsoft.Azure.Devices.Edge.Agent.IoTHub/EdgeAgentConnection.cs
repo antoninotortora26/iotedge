@@ -44,6 +44,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
         readonly Task initTask;
         readonly RetryStrategy retryStrategy;
         readonly PeriodicTask refreshTwinTask;
+        readonly PeriodicTask syncModuleStatusTask;
         readonly IModuleConnection moduleConnection;
         readonly bool pullOnReconnect;
         readonly IDeviceManager deviceManager;
@@ -105,6 +106,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             this.moduleConnection = new ModuleConnection(moduleClientProvider, requestManager, this.OnConnectionStatusChanged, this.OnDesiredPropertiesUpdated, enableSubscriptions);
             this.retryStrategy = Preconditions.CheckNotNull(retryStrategy, nameof(retryStrategy));
             this.refreshTwinTask = new PeriodicTask(this.ForceRefreshTwin, refreshConfigFrequency, refreshConfigFrequency, Events.Log, "refresh twin config");
+            this.syncModuleStatusTask = new PeriodicTask(this.SyncModuleUpdateStatusAsync, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15), Events.Log, "sync module update status");
             this.pullOnReconnect = enableSubscriptions;
             this.deviceManager = Preconditions.CheckNotNull(deviceManager, nameof(deviceManager));
             Events.TwinRefreshInit(refreshConfigFrequency);
@@ -128,6 +130,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
         public void Dispose()
         {
             this.refreshTwinTask.Dispose();
+            this.syncModuleStatusTask.Dispose();
             this.moduleConnection.Dispose();
         }
 
@@ -346,6 +349,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                         this.reportedProperties = Option.Some(twin.Properties.Reported);
                         await this.UpdateDeploymentConfig(twin.Properties.Desired);
                         await this.ProcessUpdateTriggersAsync(twin.Properties.Desired);
+                        await this.SyncModuleUpdateStatusAsync();
                         Events.TwinRefreshSuccess();
                     }
                     catch (Exception ex) when (!ex.IsFatal())
@@ -458,6 +462,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                 // Do any validation on deploymentConfig if necessary
                 ValidateSchemaVersion(deploymentConfig);
                 this.deploymentConfigInfo = Option.Some(new DeploymentConfigInfo(desiredProperties.Version, deploymentConfig));
+
+                // Process default configuration from edgeAgent environment variables
+                this.ProcessDefaultConfiguration(deploymentConfig);
+
                 Events.UpdatedDeploymentConfig();
             }
             catch (Exception ex) when (!ex.IsFatal())
@@ -515,6 +523,74 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             }
         }
 
+        async Task SyncModuleUpdateStatusAsync()
+        {
+            try
+            {
+                var moduleStatuses = this.updateScheduleManager.GetModuleUpdateStatuses();
+
+                if (moduleStatuses.Count > 0)
+                {
+                    var patch = new TwinCollection();
+                    var modulesPatch = new TwinCollection();
+
+                    foreach (var kvp in moduleStatuses)
+                    {
+                        string moduleName = kvp.Key;
+                        var status = kvp.Value;
+
+                        var moduleUpdateStatus = new TwinCollection();
+                        moduleUpdateStatus["updateStatus"] = new
+                        {
+                            state = status.State.ToString().ToLowerInvariant(),
+                            updateMode = status.UpdateMode
+                        };
+
+                        modulesPatch[moduleName] = moduleUpdateStatus;
+                    }
+
+                    patch["modules"] = modulesPatch;
+                    await this.UpdateReportedPropertiesAsync(patch);
+
+                    Events.ModuleUpdateStatusSynced(moduleStatuses.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                Events.ErrorSyncingModuleUpdateStatus(ex);
+            }
+        }
+
+        void ProcessDefaultConfiguration(DeploymentConfig deploymentConfig)
+        {
+            try
+            {
+                string defaultMode = null;
+                string defaultSchedule = null;
+
+                // Extract DEFAULT_IMAGE_UPDATE_MODE and DEFAULT_IMAGE_UPDATE_SCHEDULE from edgeAgent environment variables
+                deploymentConfig?.SystemModules?.EdgeAgent.ForEach(edgeAgent =>
+                {
+                    if (edgeAgent.Env?.ContainsKey(Constants.DefaultImageUpdateModeVariableName) ?? false)
+                    {
+                        defaultMode = edgeAgent.Env[Constants.DefaultImageUpdateModeVariableName]?.Value;
+                    }
+
+                    if (edgeAgent.Env?.ContainsKey(Constants.DefaultImageUpdateScheduleVariableName) ?? false)
+                    {
+                        defaultSchedule = edgeAgent.Env[Constants.DefaultImageUpdateScheduleVariableName]?.Value;
+                    }
+                });
+
+                this.updateScheduleManager?.SetDefaultConfiguration(defaultMode, defaultSchedule);
+                Events.DefaultConfigurationProcessed(defaultMode, defaultSchedule);
+            }
+            catch (Exception ex)
+            {
+                Events.ErrorProcessingDefaultConfiguration(ex);
+            }
+        }
+
         async Task<bool> WaitForDeviceClientInitialization() =>
             await Task.WhenAny(this.initTask, Task.Delay(DeviceClientInitializationWaitTime)) == this.initTask;
 
@@ -557,7 +633,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                 FinishedDelayedTwinPull,
                 ProcessingUpdateTriggers,
                 UpdateTriggerReceived,
-                ErrorProcessingUpdateTriggers
+                ErrorProcessingUpdateTriggers,
+                ModuleUpdateStatusSynced,
+                ErrorSyncingModuleUpdateStatus,
+                DefaultConfigurationProcessed,
+                ErrorProcessingDefaultConfiguration
             }
 
             public static void DesiredPropertiesPatchFailed(Exception exception)
@@ -725,6 +805,28 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             internal static void ErrorProcessingUpdateTriggers(Exception ex)
             {
                 Log.LogError((int)EventIds.ErrorProcessingUpdateTriggers, ex, "Error processing update triggers from desired properties");
+            }
+
+            internal static void ModuleUpdateStatusSynced(int count)
+            {
+                Log.LogInformation((int)EventIds.ModuleUpdateStatusSynced, $"Synced update status for {count} module(s) to reported properties");
+            }
+
+            internal static void ErrorSyncingModuleUpdateStatus(Exception ex)
+            {
+                Log.LogError((int)EventIds.ErrorSyncingModuleUpdateStatus, ex, "Error syncing module update status to reported properties");
+            }
+
+            internal static void DefaultConfigurationProcessed(string defaultMode, string defaultSchedule)
+            {
+                string modeInfo = !string.IsNullOrWhiteSpace(defaultMode) ? defaultMode : "<not set>";
+                string scheduleInfo = !string.IsNullOrWhiteSpace(defaultSchedule) ? defaultSchedule : "<not set>";
+                Log.LogInformation((int)EventIds.DefaultConfigurationProcessed, $"Default configuration processed from edgeAgent: mode='{modeInfo}', schedule='{scheduleInfo}'");
+            }
+
+            internal static void ErrorProcessingDefaultConfiguration(Exception ex)
+            {
+                Log.LogError((int)EventIds.ErrorProcessingDefaultConfiguration, ex, "Error processing default configuration from edgeAgent environment variables");
             }
         }
     }
