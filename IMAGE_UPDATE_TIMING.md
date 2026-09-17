@@ -79,8 +79,9 @@ Specifies the update timing strategy for a specific module.
 **Valid values:** `immediate` (default), `on_restart`, `scheduled`, `on_request`
 
 ### IMAGE_UPDATE_SCHEDULE
-Required for `scheduled` mode on a specific module. Specifies the time window (24-hour HH:mm format).
+Required for `scheduled` mode on a specific module. Supports two formats: a daily recurring time window, or a one-time absolute date/time.
 
+**Format 1 — daily recurring `HH:mm` (24-hour format, 00:00-23:59):**
 ```json
 {
   "modules": {
@@ -97,9 +98,26 @@ Required for `scheduled` mode on a specific module. Specifies the time window (2
   }
 }
 ```
+**Behavior:** Image updates allowed within ±5 minutes of the specified time, every day.
 
-**Format:** `HH:mm` in 24-hour format (00:00-23:59)  
-**Behavior:** Image updates allowed within ±5 minutes of specified time
+**Format 2 — full date/time (ISO 8601, one-time absolute schedule):**
+```json
+{
+  "modules": {
+    "myModule": {
+      "env": {
+        "IMAGE_UPDATE_MODE": {
+          "value": "scheduled"
+        },
+        "IMAGE_UPDATE_SCHEDULE": {
+          "value": "2026-09-20T23:00:00"
+        }
+      }
+    }
+  }
+}
+```
+**Behavior:** Update applied once the current date/time reaches the specified value; no repeating window.
 
 ### Default Configuration on $edgeAgent
 
@@ -642,7 +660,7 @@ Reason: Update multiple modules in sequence, coordinated via messages
 ## Error Handling
 
 - **Invalid IMAGE_UPDATE_MODE**: Defaults to configured default or `immediate` with warning logged
-- **Invalid IMAGE_UPDATE_SCHEDULE format**: Falls back to `no update` for that cycle with error logged
+- **Invalid IMAGE_UPDATE_SCHEDULE format**: Falls back to `no update` for that cycle with warning logged (accepted formats: `HH:mm` or full ISO 8601 date/time)
 - **Missing schedule for scheduled mode**: Logs warning, skips updates for that module
 - **Runtime errors**: Defaults to configured default or `immediate` to avoid blocking updates
 

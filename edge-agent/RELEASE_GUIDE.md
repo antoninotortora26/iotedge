@@ -201,18 +201,11 @@ Segui il semantic versioning `MAJOR.MINOR.PATCH`:
 
 | Versione | Data       | Modifiche                                                           |
 |----------|------------|---------------------------------------------------------------------|
-| 1.6.1    | 2026-06-04 | Prima versione con UpdateScheduleManager, Direct Method e Twin      |
-| 1.7.0    | 2026-07-08 | Build con processo Microsoft ufficiale, rimozione simboli debug     |
-| 1.7.1    | 2026-07-09 | Fix PrepareUpdateOnlyAsync logic (488 test passing)                 |
-| 1.7.2    | 2026-07-09 | Fix NullReferenceException in IsModuleRestarting                    |
-| 1.7.3    | 2026-07-10 | Module update status tracking (idle/downloaded/applied)             |
-| 1.7.4    | 2026-07-10 | Periodic sync of module status to reported properties (15s)         |
-| 1.7.5    | 2026-07-10 | Centralized config via desired properties (moduleUpdatePolicy)      |
-| 1.5.5    | 2026-07-14 | Simplified env-based config: DEFAULT_IMAGE_UPDATE_MODE on edgeAgent |
-| 1.5.6    | 2026-07-15 | Twin size optimization: embedded updateStatus in modules            |
+| 1.5.44    | 2026-07-15 | Twin size optimization: embedded updateStatus in modules            |
 | 1.6.1    | 2026-08-18 | Allineamento con versione Microsoft upstream (net10.0)              |
+| 1.6.2    | 2026-09-16 | IMAGE_UPDATE_SCHEDULE: supporto data/ora completa (one-time) oltre a HH:mm |
 
-**Prossima versione suggerita**: 1.6.2
+**Prossima versione suggerita**: 1.6.3
 
 ---
 

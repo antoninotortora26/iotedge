@@ -319,13 +319,35 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                     return Task.FromResult(false);
                 }
 
-                // Parse schedule format: "HH:mm" (24-hour format)
-                if (!TimeSpan.TryParseExact(scheduleValue, "hh\\:mm", CultureInfo.InvariantCulture, out TimeSpan scheduledTime))
+                // Format 1: "HH:mm" (24-hour, daily recurring window)
+                if (TimeSpan.TryParseExact(scheduleValue, "hh\\:mm", CultureInfo.InvariantCulture, out TimeSpan scheduledTime))
                 {
-                    Log.LogWarning("[ImageUpdate] Module '{name}': invalid IMAGE_UPDATE_SCHEDULE format '{schedule}'. Expected 'HH:mm'", module.Name, scheduleValue);
-                    return Task.FromResult(false);
+                    return this.ShouldUpdateAtDailyTime(module, scheduledTime);
                 }
 
+                // Format 2: full date/time (ISO 8601, e.g. "2026-09-20T23:00:00"), one-time absolute schedule
+                if (DateTime.TryParse(scheduleValue, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime scheduledDateTime))
+                {
+                    return this.ShouldUpdateAtAbsoluteDateTime(module, scheduledDateTime);
+                }
+
+                Log.LogWarning(
+                    "[ImageUpdate] Module '{name}': invalid IMAGE_UPDATE_SCHEDULE format '{schedule}'. Expected 'HH:mm' or a full date/time (e.g. '2026-09-20T23:00:00')",
+                    module.Name,
+                    scheduleValue);
+                return Task.FromResult(false);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError(ex, "[ImageUpdate] Error evaluating scheduled update time for module '{name}'", module.Name);
+                return Task.FromResult(false);
+            }
+        }
+
+        private Task<bool> ShouldUpdateAtDailyTime(IModule module, TimeSpan scheduledTime)
+        {
+            try
+            {
                 DateTime now = DateTime.Now;
                 var currentTime = new TimeSpan(now.Hour, now.Minute, 0);
 
@@ -367,6 +389,39 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             catch (Exception ex)
             {
                 Log.LogError(ex, "[ImageUpdate] Error evaluating scheduled update time for module '{name}'", module.Name);
+                return Task.FromResult(false);
+            }
+        }
+
+        private Task<bool> ShouldUpdateAtAbsoluteDateTime(IModule module, DateTime scheduledDateTime)
+        {
+            try
+            {
+                DateTime now = DateTime.Now;
+                bool isDue = now >= scheduledDateTime;
+
+                if (isDue)
+                {
+                    Log.LogInformation(
+                        "[ImageUpdate] Module '{name}': applying image — scheduled date/time reached (scheduled={scheduled}, current={current})",
+                        module.Name,
+                        scheduledDateTime,
+                        now);
+                }
+                else
+                {
+                    Log.LogDebug(
+                        "[ImageUpdate] Module '{name}': scheduled date/time not yet reached (scheduled={scheduled}, current={current})",
+                        module.Name,
+                        scheduledDateTime,
+                        now);
+                }
+
+                return Task.FromResult(isDue);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError(ex, "[ImageUpdate] Error evaluating absolute scheduled date/time for module '{name}'", module.Name);
                 return Task.FromResult(false);
             }
         }
