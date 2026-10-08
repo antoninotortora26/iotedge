@@ -17,15 +17,17 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet
         readonly ModuleIdentityProviderServiceBuilder identityProviderServiceBuilder;
         readonly Uri workloadUri;
         readonly bool enableOrphanedIdentityCleanup;
+        readonly string identityBackupFilePath;
 
         protected virtual bool ShouldAlwaysReturnIdentities => false;
 
-        public ModuleIdentityLifecycleManager(IIdentityManager identityManager, ModuleIdentityProviderServiceBuilder identityProviderServiceBuilder, Uri workloadUri, bool enableOrphanedIdentityCleanup)
+        public ModuleIdentityLifecycleManager(IIdentityManager identityManager, ModuleIdentityProviderServiceBuilder identityProviderServiceBuilder, Uri workloadUri, bool enableOrphanedIdentityCleanup, string identityBackupFilePath = null)
         {
             this.identityManager = Preconditions.CheckNotNull(identityManager, nameof(identityManager));
             this.identityProviderServiceBuilder = Preconditions.CheckNotNull(identityProviderServiceBuilder, nameof(identityProviderServiceBuilder));
             this.workloadUri = Preconditions.CheckNotNull(workloadUri, nameof(workloadUri));
             this.enableOrphanedIdentityCleanup = enableOrphanedIdentityCleanup;
+            this.identityBackupFilePath = identityBackupFilePath;
         }
 
         public async Task<IImmutableDictionary<string, IModuleIdentity>> GetModuleIdentitiesAsync(ModuleSet desired, ModuleSet current)
@@ -46,13 +48,84 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet
                 }
 
                 IImmutableDictionary<string, IModuleIdentity> moduleIdentities = await this.GetModuleIdentitiesAsync(diff, identities);
+                this.lastKnownIdentities = moduleIdentities;
+                this.BackupIdentities(moduleIdentities);
                 return moduleIdentities;
             }
             catch (Exception ex)
             {
                 Events.ErrorGettingModuleIdentities(ex);
-                return ImmutableDictionary<string, IModuleIdentity>.Empty;
+
+                // Offline: reuse the last identities obtained (in memory, or from the on-disk backup
+                // after a restart) so deferred (e.g. scheduled) updates can still be planned.
+                if (this.lastKnownIdentities.Count == 0)
+                {
+                    this.lastKnownIdentities = this.RestoreIdentities();
+                }
+
+                return this.lastKnownIdentities;
             }
+        }
+
+        volatile IImmutableDictionary<string, IModuleIdentity> lastKnownIdentities = ImmutableDictionary<string, IModuleIdentity>.Empty;
+
+        void BackupIdentities(IImmutableDictionary<string, IModuleIdentity> moduleIdentities)
+        {
+            if (string.IsNullOrWhiteSpace(this.identityBackupFilePath) || moduleIdentities.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var entries = moduleIdentities.Values
+                    .Select(m => new { Id = m.ModuleId, Creds = m.Credentials as IdentityProviderServiceCredentials })
+                    .Where(x => x.Creds != null)
+                    .Select(x => new BackedUpIdentity { ModuleId = x.Id, GenerationId = x.Creds.ModuleGenerationId })
+                    .ToList();
+
+                string dir = System.IO.Path.GetDirectoryName(this.identityBackupFilePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    System.IO.Directory.CreateDirectory(dir);
+                }
+
+                string tmpPath = this.identityBackupFilePath + ".tmp";
+                System.IO.File.WriteAllText(tmpPath, Newtonsoft.Json.JsonConvert.SerializeObject(entries));
+                System.IO.File.Copy(tmpPath, this.identityBackupFilePath, true);
+                System.IO.File.Delete(tmpPath);
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                Events.ErrorGettingModuleIdentities(ex);
+            }
+        }
+
+        IImmutableDictionary<string, IModuleIdentity> RestoreIdentities()
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(this.identityBackupFilePath) && System.IO.File.Exists(this.identityBackupFilePath))
+                {
+                    var entries = Newtonsoft.Json.JsonConvert.DeserializeObject<List<BackedUpIdentity>>(System.IO.File.ReadAllText(this.identityBackupFilePath));
+                    return entries
+                        .Select(e => this.identityProviderServiceBuilder.Create(e.ModuleId, e.GenerationId, this.workloadUri.ToString()))
+                        .ToImmutableDictionary(m => ModuleIdentityHelper.GetModuleName(m.ModuleId));
+                }
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                Events.ErrorGettingModuleIdentities(ex);
+            }
+
+            return ImmutableDictionary<string, IModuleIdentity>.Empty;
+        }
+
+        class BackedUpIdentity
+        {
+            public string ModuleId { get; set; }
+
+            public string GenerationId { get; set; }
         }
 
         async Task<IImmutableDictionary<string, IModuleIdentity>> GetModuleIdentitiesAsync(Diff diff, IImmutableDictionary<string, Identity> identities)

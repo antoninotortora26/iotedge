@@ -47,6 +47,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
         readonly TimeSpan performanceMetricsUpdateFrequency;
         readonly bool useServerHeartbeat;
         readonly string backupConfigFilePath;
+        readonly string identityBackupFilePath;
         readonly bool disableDeviceAnalyticsTelemetry;
         readonly ModuleUpdateMode moduleUpdateMode;
         readonly TimeSpan edgeletTimeout;
@@ -68,6 +69,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             TimeSpan performanceMetricsUpdateFrequency,
             bool useServerHeartbeat,
             string backupConfigFilePath,
+            string identityBackupFilePath,
             bool disableDeviceAnalyticsTelemetry,
             ModuleUpdateMode moduleUpdateMode,
             TimeSpan edgeletTimeout,
@@ -88,6 +90,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             this.performanceMetricsUpdateFrequency = performanceMetricsUpdateFrequency;
             this.useServerHeartbeat = useServerHeartbeat;
             this.backupConfigFilePath = Preconditions.CheckNonWhiteSpace(backupConfigFilePath, nameof(backupConfigFilePath));
+            this.identityBackupFilePath = Preconditions.CheckNonWhiteSpace(identityBackupFilePath, nameof(identityBackupFilePath));            
             this.disableDeviceAnalyticsTelemetry = disableDeviceAnalyticsTelemetry;
             this.moduleUpdateMode = moduleUpdateMode;
             this.edgeletTimeout = edgeletTimeout;
@@ -121,7 +124,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
 
             // IModuleIdentityLifecycleManager
             var identityBuilder = new ModuleIdentityProviderServiceBuilder(this.iotHubHostName, this.deviceId);
-            builder.Register(c => new ModuleIdentityLifecycleManager(c.Resolve<IIdentityManager>(), identityBuilder, this.workloadUri, this.enableOrphanedIdentityCleanup))
+            builder.Register(c => new ModuleIdentityLifecycleManager(c.Resolve<IIdentityManager>(), identityBuilder, this.workloadUri, this.enableOrphanedIdentityCleanup, this.identityBackupFilePath))
                 .As<IModuleIdentityLifecycleManager>()
                 .SingleInstance();
 

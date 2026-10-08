@@ -335,3 +335,6 @@ prime/
 
 # used by the C# Dev Kit (VS Code extension)
 .mono/
+
+# NuGet lock files generated in tests
+packages.lock.json
