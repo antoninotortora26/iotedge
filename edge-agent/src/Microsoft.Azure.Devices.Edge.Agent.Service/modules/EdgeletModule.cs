@@ -48,6 +48,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
         readonly bool useServerHeartbeat;
         readonly string backupConfigFilePath;
         readonly string identityBackupFilePath;
+        readonly string imageBackupFilePath;
         readonly bool disableDeviceAnalyticsTelemetry;
         readonly ModuleUpdateMode moduleUpdateMode;
         readonly TimeSpan edgeletTimeout;
@@ -70,6 +71,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             bool useServerHeartbeat,
             string backupConfigFilePath,
             string identityBackupFilePath,
+            string imageBackupFilePath,
             bool disableDeviceAnalyticsTelemetry,
             ModuleUpdateMode moduleUpdateMode,
             TimeSpan edgeletTimeout,
@@ -91,6 +93,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             this.useServerHeartbeat = useServerHeartbeat;
             this.backupConfigFilePath = Preconditions.CheckNonWhiteSpace(backupConfigFilePath, nameof(backupConfigFilePath));
             this.identityBackupFilePath = Preconditions.CheckNonWhiteSpace(identityBackupFilePath, nameof(identityBackupFilePath));            
+            this.imageBackupFilePath = Preconditions.CheckNonWhiteSpace(imageBackupFilePath, nameof(imageBackupFilePath));            
             this.disableDeviceAnalyticsTelemetry = disableDeviceAnalyticsTelemetry;
             this.moduleUpdateMode = moduleUpdateMode;
             this.edgeletTimeout = edgeletTimeout;
@@ -149,10 +152,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                         var loggerFactory = c.Resolve<ILoggerFactory>();
                         IConfigSource configSource = await configSourceTask;
                         ICombinedConfigProvider<CombinedDockerConfig> combinedDockerConfigProvider = await combinedDockerConfigProviderTask;
+                        var pulledImageCache = new PulledImageCache(this.imageBackupFilePath);
                         ICommandFactory factory = new EdgeletCommandFactory<CombinedDockerConfig>(
                             moduleManager,
                             configSource,
-                            combinedDockerConfigProvider);
+                            combinedDockerConfigProvider,
+                            pulledImageCache);
 
                         if (this.moduleUpdateMode == ModuleUpdateMode.NonBlocking)
                         {

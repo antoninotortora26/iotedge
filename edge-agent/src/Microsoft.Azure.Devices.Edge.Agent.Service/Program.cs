@@ -99,6 +99,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
             string configSourceConfig;
             string backupConfigFilePath;
             string identityBackupFilePath;
+            string imageBackupFilePath;
             int maxRestartCount;
             TimeSpan intensiveCareTime;
             int coolOffTimeUnitInSeconds;
@@ -123,6 +124,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                 configSourceConfig = configuration.GetValue<string>("ConfigSource");
                 backupConfigFilePath = configuration.GetValue<string>("BackupConfigFilePath");
                 identityBackupFilePath = configuration.GetValue<string>("IdentityBackupFilePath");                
+                imageBackupFilePath = configuration.GetValue<string>("ImageBackupFilePath");                
                 maxRestartCount = configuration.GetValue<int>("MaxRestartCount");
                 intensiveCareTime = TimeSpan.FromMinutes(configuration.GetValue<int>("IntensiveCareTimeInMinutes"));
                 coolOffTimeUnitInSeconds = configuration.GetValue("CoolOffTimeUnitInSeconds", 10);
@@ -144,6 +146,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
 
                 backupConfigFilePath = GetFullBackupFilePath(storagePath, backupConfigFilePath);
                 identityBackupFilePath = GetFullBackupFilePath(storagePath, identityBackupFilePath);
+                imageBackupFilePath = GetFullBackupFilePath(storagePath, imageBackupFilePath);
                 edgeDeviceHostName = configuration.GetValue<string>(Constants.EdgeDeviceHostNameKey);
                 dockerAuthConfig = configuration.GetSection("DockerRegistryAuth").Get<List<global::Docker.DotNet.Models.AuthConfig>>() ?? new List<global::Docker.DotNet.Models.AuthConfig>();
 
@@ -218,7 +221,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                         apiVersion = configuration.GetValue<string>(Constants.EdgeletApiVersionVariableName);
                         TimeSpan performanceMetricsUpdateFrequency = configuration.GetTimeSpan("PerformanceMetricsUpdateFrequency", TimeSpan.FromMinutes(5));
                         builder.RegisterModule(new AgentModule(maxRestartCount, intensiveCareTime, coolOffTimeUnitInSeconds, usePersistentStorage, storagePath, Option.Some(new Uri(workloadUri)), Option.Some(apiVersion), moduleId, Option.Some(moduleGenerationId), enableNonPersistentStorageBackup, storageBackupPath, storageTotalMaxWalSize, storageMaxManifestFileSize, storageMaxOpenFiles, storageLogLevel, moduleUpdateMode,  offlineCheckInfo));
-                        builder.RegisterModule(new EdgeletModule(iothubHostname, deviceId, new Uri(managementUri), new Uri(workloadUri), apiVersion, dockerAuthConfig, upstreamProtocol, proxy, productInfo, closeOnIdleTimeout, idleTimeout, performanceMetricsUpdateFrequency, useServerHeartbeat, backupConfigFilePath, identityBackupFilePath, disableDeviceAnalyticsMetadata, moduleUpdateMode, edgeletTimeout, enableOrphanedIdentityCleanup, clientPermitTimeoutSecs));
+                        builder.RegisterModule(new EdgeletModule(iothubHostname, deviceId, new Uri(managementUri), new Uri(workloadUri), apiVersion, dockerAuthConfig, upstreamProtocol, proxy, productInfo, closeOnIdleTimeout, idleTimeout, performanceMetricsUpdateFrequency, useServerHeartbeat, backupConfigFilePath, identityBackupFilePath, imageBackupFilePath, disableDeviceAnalyticsMetadata, moduleUpdateMode, edgeletTimeout, enableOrphanedIdentityCleanup, clientPermitTimeoutSecs));
                         IEnumerable<X509Certificate2> trustBundle =
                             await CertificateHelper.GetTrustBundleFromEdgelet(new Uri(workloadUri), apiVersion, Constants.WorkloadApiVersion, moduleId, moduleGenerationId);
                         CertificateHelper.InstallCertificates(trustBundle, logger);

@@ -14,19 +14,23 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.Commands
         readonly IModuleManager moduleManager;
         readonly ModuleSpec module;
 
-        public PrepareUpdateCommand(IModuleManager moduleManager, IModule module, object settings)
+        readonly PulledImageCache imageCache;
+
+        public PrepareUpdateCommand(IModuleManager moduleManager, IModule module, object settings, PulledImageCache imageCache = null)
         {
             this.moduleManager = moduleManager;
             this.module = BuildModuleSpec(module, settings);
+            this.imageCache = imageCache;
         }
 
         public string Id => $"PrepareUpdateCommand({this.module.Name})";
 
         public string Show() => $"Prepare module {this.module.Name}";
 
-        public Task ExecuteAsync(CancellationToken token)
+        public async Task ExecuteAsync(CancellationToken token)
         {
-            return this.moduleManager.PrepareUpdateAsync(this.module);
+            await this.moduleManager.PrepareUpdateAsync(this.module);
+            this.imageCache?.Add(PulledImageCache.GetImage(this.module.Settings));
         }
 
         public Task UndoAsync(CancellationToken token) => TaskEx.Done;

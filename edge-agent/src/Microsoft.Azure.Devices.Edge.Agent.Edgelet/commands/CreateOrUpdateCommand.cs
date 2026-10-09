@@ -18,13 +18,15 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.Commands
         readonly ModuleSpec moduleSpec;
         readonly Lazy<string> id;
         readonly Operation operation;
+        readonly PulledImageCache imageCache;
 
-        CreateOrUpdateCommand(IModuleManager moduleManager, ModuleSpec moduleSpec, Operation operation)
+        CreateOrUpdateCommand(IModuleManager moduleManager, ModuleSpec moduleSpec, Operation operation, PulledImageCache imageCache)
         {
             this.moduleManager = Preconditions.CheckNotNull(moduleManager, nameof(moduleManager));
             this.moduleSpec = Preconditions.CheckNotNull(moduleSpec, nameof(moduleSpec));
             this.id = new Lazy<string>(() => JsonConvert.SerializeObject(this.moduleSpec).CreateSha256());
             this.operation = operation;
+            this.imageCache = imageCache;
         }
 
         enum Operation
@@ -45,8 +47,9 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.Commands
             IConfigSource configSource,
             object settings,
             string edgeDeviceHostname,
-            Option<string> parentEdgeHostname) =>
-            Build(moduleManager, module, identity, configSource, settings, Operation.Create, edgeDeviceHostname, parentEdgeHostname);
+            Option<string> parentEdgeHostname,
+            PulledImageCache imageCache = null) =>
+            Build(moduleManager, module, identity, configSource, settings, Operation.Create, edgeDeviceHostname, parentEdgeHostname, imageCache);
 
         public static CreateOrUpdateCommand BuildUpdate(
             IModuleManager moduleManager,
@@ -56,21 +59,30 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.Commands
             object settings,
             bool start,
             string edgeDeviceHostname,
-            Option<string> parentEdgeHostname) =>
-            Build(moduleManager, module, identity, configSource, settings, start ? Operation.UpdateAndStart : Operation.Update, edgeDeviceHostname, parentEdgeHostname);
+            Option<string> parentEdgeHostname,
+            PulledImageCache imageCache = null) =>
+            Build(moduleManager, module, identity, configSource, settings, start ? Operation.UpdateAndStart : Operation.Update, edgeDeviceHostname, parentEdgeHostname, imageCache);
 
         public Task ExecuteAsync(CancellationToken token)
         {
+            // The pull has already been attempted by the preceding prepare command. If the image is known
+            // to be present (pulled now or earlier), iotedged must not pull it again: that would fail offline.
+            ModuleSpec spec = this.moduleSpec;
+            if (this.imageCache != null && this.imageCache.Contains(PulledImageCache.GetImage(spec.Settings)))
+            {
+                spec = new ModuleSpec(spec.Name, spec.Type, ImagePullPolicy.Never, spec.Settings, spec.EnvironmentVariables);
+            }
+
             switch (this.operation)
             {
                 case Operation.Update:
-                    return this.moduleManager.UpdateModuleAsync(this.moduleSpec);
+                    return this.moduleManager.UpdateModuleAsync(spec);
 
                 case Operation.UpdateAndStart:
-                    return this.moduleManager.UpdateAndStartModuleAsync(this.moduleSpec);
+                    return this.moduleManager.UpdateAndStartModuleAsync(spec);
 
                 default:
-                    return this.moduleManager.CreateModuleAsync(this.moduleSpec);
+                    return this.moduleManager.CreateModuleAsync(spec);
             }
         }
 
@@ -207,7 +219,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.Commands
             object settings,
             Operation operation,
             string edgeDeviceHostname,
-            Option<string> parentEdgeHostname)
+            Option<string> parentEdgeHostname,
+            PulledImageCache imageCache)
         {
             Preconditions.CheckNotNull(moduleManager, nameof(moduleManager));
             Preconditions.CheckNotNull(module, nameof(module));
@@ -218,7 +231,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.Commands
 
             IEnumerable<EnvVar> envVars = GetEnvVars(module.Env, identity, configSource, edgeDeviceHostname, parentEdgeHostname);
             ModuleSpec moduleSpec = BuildModuleSpec(module, envVars, settings);
-            return new CreateOrUpdateCommand(moduleManager, moduleSpec, operation);
+            return new CreateOrUpdateCommand(moduleManager, moduleSpec, operation, imageCache);
         }
     }
 }

@@ -36,7 +36,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.CommandFactories
 
         public async Task<ICommand> CreateAsync(IModuleWithIdentity module, IRuntimeInfo runtimeInfo)
         {
-            Task<ICommand> prepareUpdate = this.commandFactory.PrepareUpdateAsync(module.Module, runtimeInfo);
+            Task<ICommand> prepareUpdate = this.BestEffortPrepareAsync(module.Module, runtimeInfo);
             Task<ICommand> create = this.commandFactory.CreateAsync(module, runtimeInfo);
 
             IList<Task<ICommand>> cmds = new List<Task<ICommand>> { prepareUpdate, create };
@@ -48,14 +48,17 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.CommandFactories
             return this.nullCommandFactory.PrepareUpdateAsync(module, runtimeInfo);
         }
 
-        public Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo)
+        public async Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo)
         {
-            return this.commandFactory.PrepareUpdateAsync(module, runtimeInfo);
+            return await this.BestEffortPrepareAsync(module, runtimeInfo);
         }
+
+        async Task<ICommand> BestEffortPrepareAsync(IModule module, IRuntimeInfo runtimeInfo) =>
+            new BestEffortCommand(await this.commandFactory.PrepareUpdateAsync(module, runtimeInfo));
 
         public async Task<ICommand> UpdateAsync(IModule current, IModuleWithIdentity next, IRuntimeInfo runtimeInfo)
         {
-            Task<ICommand> prepareUpdate = this.commandFactory.PrepareUpdateAsync(next.Module, runtimeInfo);
+            Task<ICommand> prepareUpdate = this.BestEffortPrepareAsync(next.Module, runtimeInfo);
             Task<ICommand> update = this.commandFactory.UpdateAsync(current, next, runtimeInfo);
 
             IList<Task<ICommand>> cmds = new List<Task<ICommand>> { prepareUpdate, update };

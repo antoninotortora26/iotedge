@@ -16,12 +16,15 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.CommandFactories
         readonly ICombinedConfigProvider<T> combinedConfigProvider;
         readonly string edgeDeviceHostname;
         readonly Option<string> parentEdgeHostname;
+        readonly PulledImageCache imageCache;
 
         public EdgeletCommandFactory(
             IModuleManager moduleManager,
             IConfigSource configSource,
-            ICombinedConfigProvider<T> combinedConfigProvider)
+            ICombinedConfigProvider<T> combinedConfigProvider,
+            PulledImageCache imageCache = null)
         {
+            this.imageCache = imageCache;
             this.moduleManager = Preconditions.CheckNotNull(moduleManager, nameof(moduleManager));
             this.configSource = Preconditions.CheckNotNull(configSource, nameof(configSource));
             this.combinedConfigProvider = Preconditions.CheckNotNull(combinedConfigProvider, nameof(combinedConfigProvider));
@@ -45,13 +48,14 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.CommandFactories
                         this.configSource,
                         config,
                         this.edgeDeviceHostname,
-                        this.parentEdgeHostname) as ICommand);
+                        this.parentEdgeHostname,
+                        this.imageCache) as ICommand);
         }
 
         public Task<ICommand> PrepareUpdateAsync(IModule module, IRuntimeInfo runtimeInfo)
         {
             T config = this.combinedConfigProvider.GetCombinedConfig(module, runtimeInfo);
-            return Task.FromResult(new PrepareUpdateCommand(this.moduleManager, module, config) as ICommand);
+            return Task.FromResult(new PrepareUpdateCommand(this.moduleManager, module, config, this.imageCache) as ICommand);
         }
 
         public Task<ICommand> PrepareUpdateOnlyAsync(IModule module, IRuntimeInfo runtimeInfo)
@@ -88,7 +92,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet.CommandFactories
                     config,
                     start,
                     this.edgeDeviceHostname,
-                    this.parentEdgeHostname)
+                    this.parentEdgeHostname,
+                    this.imageCache)
                 as ICommand);
         }
     }

@@ -111,3 +111,23 @@ Set to the Docker network you want the modules in the Edge deployment to be a pa
 
 Set to the host name of the edge device, which will be used by the modules and 
 downstream devices to connect to the EdgeHub.
+
+## Building the Edge Agent Docker image locally (linux/amd64)
+
+1. Publish (Windows PowerShell, from the repo root):
+   ```powershell
+   dotnet publish edge-agent\src\Microsoft.Azure.Devices.Edge.Agent.Service -c Release -r linux-x64 --no-self-contained -p:UseAppHost=false -o out\agent
+   ```
+2. Add the Dockerfile and RocksDB library to the output folder:
+   ```powershell
+   cd out\agent
+   Copy-Item ..\..\edge-agent\docker\linux\Dockerfile .
+   New-Item -ItemType Directory -Force librocksdb\linux\amd64
+   Copy-Item ..\..\edge-agent\docker\linux\librocksdb\linux\amd64\librocksdb.so librocksdb\linux\amd64\
+   ```
+3. Build (WSL/Linux):
+   ```bash
+   cd /mnt/c/Projects/iotedge/out/agent
+   chmod +x agentStart.sh
+   docker build --platform linux/amd64 -t edge-agent:local .
+   ```
