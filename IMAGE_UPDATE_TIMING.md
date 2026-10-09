@@ -79,7 +79,7 @@ Specifies the update timing strategy for a specific module.
 **Valid values:** `immediate` (default), `on_restart`, `scheduled`, `on_request`
 
 ### IMAGE_UPDATE_SCHEDULE
-Required for `scheduled` mode on a specific module. Specifies the time window (24-hour HH:mm format).
+Required for `scheduled` mode on a specific module. Specifies the one-time UTC date and time after which the update is applied (ISO 8601).
 
 ```json
 {
@@ -90,7 +90,7 @@ Required for `scheduled` mode on a specific module. Specifies the time window (2
           "value": "scheduled"
         },
         "IMAGE_UPDATE_SCHEDULE": {
-          "value": "23:00"
+          "value": "2026-10-08T23:00:00Z"
         }
       }
     }
@@ -98,8 +98,8 @@ Required for `scheduled` mode on a specific module. Specifies the time window (2
 }
 ```
 
-**Format:** `HH:mm` in 24-hour format (00:00-23:59)  
-**Behavior:** Image updates allowed within ±5 minutes of specified time
+**Format:** ISO 8601 UTC date and time, e.g. `2026-10-08T23:00:00Z`  
+**Behavior:** The image is pre-pulled immediately; once the scheduled time is reached the update is applied (also if the device was offline at that exact time)
 
 ### Default Configuration on $edgeAgent
 

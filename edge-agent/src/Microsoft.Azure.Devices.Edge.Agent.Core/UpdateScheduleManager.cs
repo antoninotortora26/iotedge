@@ -102,7 +102,13 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
     {
         static readonly ILogger Log = Logger.Factory.CreateLogger<UpdateScheduleManager>();
         private readonly Dictionary<string, bool> updateRequestedModules = new Dictionary<string, bool>();
-        private readonly Dictionary<string, DateTime> lastUpdateAttempt = new Dictionary<string, DateTime>();
+        private static readonly string[] ScheduleFormats =
+        {
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'",
+            "yyyy-MM-dd'T'HH:mm'Z'"
+        };
+
         private readonly Dictionary<string, ModuleUpdateStatus> moduleUpdateStatuses = new Dictionary<string, ModuleUpdateStatus>();
         private readonly object stateLock = new object();
         private string defaultUpdateMode = null;
@@ -319,50 +325,39 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                     return Task.FromResult(false);
                 }
 
-                // Parse schedule format: "HH:mm" (24-hour format)
-                if (!TimeSpan.TryParseExact(scheduleValue, "hh\\:mm", CultureInfo.InvariantCulture, out TimeSpan scheduledTime))
+                // Schedule is a one-time absolute UTC timestamp in ISO 8601 format, e.g. "2026-10-08T15:53:00Z".
+                // The apply is not limited to a narrow window so that it still happens if the device was offline or busy at that instant.
+                if (!DateTimeOffset.TryParseExact(
+                        scheduleValue.Trim(),
+                        ScheduleFormats,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                        out DateTimeOffset scheduledInstant))
                 {
-                    Log.LogWarning("[ImageUpdate] Module '{name}': invalid IMAGE_UPDATE_SCHEDULE format '{schedule}'. Expected 'HH:mm'", module.Name, scheduleValue);
+                    Log.LogWarning(
+                        "[ImageUpdate] Module '{name}': invalid IMAGE_UPDATE_SCHEDULE format '{schedule}'. Expected an ISO 8601 UTC date/time, e.g. '2026-10-08T15:53:00Z'",
+                        module.Name,
+                        scheduleValue);
                     return Task.FromResult(false);
                 }
 
-                DateTime now = DateTime.Now;
-                var currentTime = new TimeSpan(now.Hour, now.Minute, 0);
-
-                // Allow update within a 5-minute window of scheduled time
-                bool isInWindow = Math.Abs((currentTime - scheduledTime).TotalMinutes) <= 5;
-
-                if (isInWindow)
+                DateTimeOffset utcNow = DateTimeOffset.UtcNow;
+                if (utcNow < scheduledInstant)
                 {
-                    // Check if we already attempted update recently to avoid repeated attempts
-                    if (this.lastUpdateAttempt.TryGetValue(module.Name, out DateTime lastAttempt))
-                    {
-                        // If last attempt was within this hour, skip to avoid repeated updates
-                        if (DateTime.Now - lastAttempt < TimeSpan.FromHours(1))
-                        {
-                            Log.LogDebug(
-                                "[ImageUpdate] Module '{name}': inside scheduled window but already applied within the hour, skipping (lastAttempt={lastAttempt})",
-                                module.Name,
-                                lastAttempt);
-                            return Task.FromResult(false);
-                        }
-                    }
-
-                    this.lastUpdateAttempt[module.Name] = DateTime.Now;
-                    Log.LogInformation(
-                        "[ImageUpdate] Module '{name}': applying image — inside scheduled window (scheduled={schedule}, current={current})",
+                    Log.LogDebug(
+                        "[ImageUpdate] Module '{name}': scheduled date/time not yet reached, deferring apply (scheduled={scheduled:o}, current={current:o})",
                         module.Name,
-                        scheduledTime,
-                        currentTime);
-                    return Task.FromResult(true);
+                        scheduledInstant,
+                        utcNow);
+                    return Task.FromResult(false);
                 }
 
-                Log.LogDebug(
-                    "[ImageUpdate] Module '{name}': outside scheduled window, deferring apply (scheduled={schedule}, current={current})",
+                Log.LogInformation(
+                    "[ImageUpdate] Module '{name}': applying image — scheduled date/time reached (scheduled={scheduled:o}, current={current:o})",
                     module.Name,
-                    scheduledTime,
-                    currentTime);
-                return Task.FromResult(false);
+                    scheduledInstant,
+                    utcNow);
+                return Task.FromResult(true);
             }
             catch (Exception ex)
             {
