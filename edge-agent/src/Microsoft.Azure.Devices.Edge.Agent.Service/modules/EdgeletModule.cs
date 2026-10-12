@@ -54,6 +54,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
         readonly TimeSpan edgeletTimeout;
         readonly bool enableOrphanedIdentityCleanup;
         readonly int clientPermitTimeoutSecs;
+        readonly bool enableOfflineCache;
 
         public EdgeletModule(
             string iotHubHostname,
@@ -76,8 +77,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             ModuleUpdateMode moduleUpdateMode,
             TimeSpan edgeletTimeout,
             bool enableOrphanedIdentityCleanup,
-            int clientPermitTimeoutSecs)
+            int clientPermitTimeoutSecs,
+            bool enableOfflineCache)
         {
+            this.enableOfflineCache = enableOfflineCache;
             this.iotHubHostName = Preconditions.CheckNonWhiteSpace(iotHubHostname, nameof(iotHubHostname));
             this.deviceId = Preconditions.CheckNonWhiteSpace(deviceId, nameof(deviceId));
             this.managementUri = Preconditions.CheckNotNull(managementUri, nameof(managementUri));
@@ -92,8 +95,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             this.performanceMetricsUpdateFrequency = performanceMetricsUpdateFrequency;
             this.useServerHeartbeat = useServerHeartbeat;
             this.backupConfigFilePath = Preconditions.CheckNonWhiteSpace(backupConfigFilePath, nameof(backupConfigFilePath));
-            this.identityBackupFilePath = Preconditions.CheckNonWhiteSpace(identityBackupFilePath, nameof(identityBackupFilePath));            
-            this.imageBackupFilePath = Preconditions.CheckNonWhiteSpace(imageBackupFilePath, nameof(imageBackupFilePath));            
+            this.identityBackupFilePath = Preconditions.CheckNonWhiteSpace(identityBackupFilePath, nameof(identityBackupFilePath));
+            this.imageBackupFilePath = Preconditions.CheckNonWhiteSpace(imageBackupFilePath, nameof(imageBackupFilePath));
             this.disableDeviceAnalyticsTelemetry = disableDeviceAnalyticsTelemetry;
             this.moduleUpdateMode = moduleUpdateMode;
             this.edgeletTimeout = edgeletTimeout;
@@ -127,7 +130,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
 
             // IModuleIdentityLifecycleManager
             var identityBuilder = new ModuleIdentityProviderServiceBuilder(this.iotHubHostName, this.deviceId);
-            builder.Register(c => new ModuleIdentityLifecycleManager(c.Resolve<IIdentityManager>(), identityBuilder, this.workloadUri, this.enableOrphanedIdentityCleanup, this.identityBackupFilePath))
+            builder.Register(c => new ModuleIdentityLifecycleManager(c.Resolve<IIdentityManager>(), identityBuilder, this.workloadUri, this.enableOrphanedIdentityCleanup, this.identityBackupFilePath, this.enableOfflineCache))
                 .As<IModuleIdentityLifecycleManager>()
                 .SingleInstance();
 
@@ -152,7 +155,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                         var loggerFactory = c.Resolve<ILoggerFactory>();
                         IConfigSource configSource = await configSourceTask;
                         ICombinedConfigProvider<CombinedDockerConfig> combinedDockerConfigProvider = await combinedDockerConfigProviderTask;
-                        var pulledImageCache = new PulledImageCache(this.imageBackupFilePath);
+                        PulledImageCache pulledImageCache = this.enableOfflineCache ? new PulledImageCache(this.imageBackupFilePath) : null;
                         ICommandFactory factory = new EdgeletCommandFactory<CombinedDockerConfig>(
                             moduleManager,
                             configSource,

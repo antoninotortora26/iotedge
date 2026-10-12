@@ -18,11 +18,13 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet
         readonly Uri workloadUri;
         readonly bool enableOrphanedIdentityCleanup;
         readonly string identityBackupFilePath;
+        readonly bool enableOfflineCache;
 
         protected virtual bool ShouldAlwaysReturnIdentities => false;
 
-        public ModuleIdentityLifecycleManager(IIdentityManager identityManager, ModuleIdentityProviderServiceBuilder identityProviderServiceBuilder, Uri workloadUri, bool enableOrphanedIdentityCleanup, string identityBackupFilePath = null)
+        public ModuleIdentityLifecycleManager(IIdentityManager identityManager, ModuleIdentityProviderServiceBuilder identityProviderServiceBuilder, Uri workloadUri,         bool enableOrphanedIdentityCleanup, string identityBackupFilePath = null, bool enableOfflineCache = true)
         {
+            this.enableOfflineCache = enableOfflineCache;
             this.identityManager = Preconditions.CheckNotNull(identityManager, nameof(identityManager));
             this.identityProviderServiceBuilder = Preconditions.CheckNotNull(identityProviderServiceBuilder, nameof(identityProviderServiceBuilder));
             this.workloadUri = Preconditions.CheckNotNull(workloadUri, nameof(workloadUri));
@@ -48,13 +50,22 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Edgelet
                 }
 
                 IImmutableDictionary<string, IModuleIdentity> moduleIdentities = await this.GetModuleIdentitiesAsync(diff, identities);
-                this.lastKnownIdentities = moduleIdentities;
-                this.BackupIdentities(moduleIdentities);
+                if (this.enableOfflineCache)
+                {
+                    this.lastKnownIdentities = moduleIdentities;
+                    this.BackupIdentities(moduleIdentities);
+                }
+
                 return moduleIdentities;
             }
             catch (Exception ex)
             {
                 Events.ErrorGettingModuleIdentities(ex);
+
+                if (!this.enableOfflineCache)
+                {
+                    return ImmutableDictionary<string, IModuleIdentity>.Empty;
+                }
 
                 // Offline: reuse the last identities obtained (in memory, or from the on-disk backup
                 // after a restart) so deferred (e.g. scheduled) updates can still be planned.

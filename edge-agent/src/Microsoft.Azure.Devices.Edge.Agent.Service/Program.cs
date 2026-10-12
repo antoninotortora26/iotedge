@@ -100,6 +100,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
             string backupConfigFilePath;
             string identityBackupFilePath;
             string imageBackupFilePath;
+            bool enableOfflineCache;
             int maxRestartCount;
             TimeSpan intensiveCareTime;
             int coolOffTimeUnitInSeconds;
@@ -123,8 +124,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                 mode = configuration.GetValue(Constants.ModeKey, "iotedged");
                 configSourceConfig = configuration.GetValue<string>("ConfigSource");
                 backupConfigFilePath = configuration.GetValue<string>("BackupConfigFilePath");
-                identityBackupFilePath = configuration.GetValue<string>("IdentityBackupFilePath");                
-                imageBackupFilePath = configuration.GetValue<string>("ImageBackupFilePath");                
+                identityBackupFilePath = configuration.GetValue<string>("IdentityBackupFilePath");
+                imageBackupFilePath = configuration.GetValue<string>("ImageBackupFilePath");
                 maxRestartCount = configuration.GetValue<int>("MaxRestartCount");
                 intensiveCareTime = TimeSpan.FromMinutes(configuration.GetValue<int>("IntensiveCareTimeInMinutes"));
                 coolOffTimeUnitInSeconds = configuration.GetValue("CoolOffTimeUnitInSeconds", 10);
@@ -132,6 +133,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                 useServerHeartbeat = configuration.GetValue("UseServerHeartbeat", true);
                 moduleUpdateMode = configuration.GetValue("ModuleUpdateMode", ModuleUpdateMode.NonBlocking);
                 useOfflineCheck = configuration.GetValue("UseOfflineCheck", false);
+                enableOfflineCache = configuration.GetValue("OfflineCacheEnabled", false);
 
                 logger.LogInformation($"ModuleUpdateMode: {moduleUpdateMode.ToString()}");
 
@@ -221,7 +223,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                         apiVersion = configuration.GetValue<string>(Constants.EdgeletApiVersionVariableName);
                         TimeSpan performanceMetricsUpdateFrequency = configuration.GetTimeSpan("PerformanceMetricsUpdateFrequency", TimeSpan.FromMinutes(5));
                         builder.RegisterModule(new AgentModule(maxRestartCount, intensiveCareTime, coolOffTimeUnitInSeconds, usePersistentStorage, storagePath, Option.Some(new Uri(workloadUri)), Option.Some(apiVersion), moduleId, Option.Some(moduleGenerationId), enableNonPersistentStorageBackup, storageBackupPath, storageTotalMaxWalSize, storageMaxManifestFileSize, storageMaxOpenFiles, storageLogLevel, moduleUpdateMode,  offlineCheckInfo));
-                        builder.RegisterModule(new EdgeletModule(iothubHostname, deviceId, new Uri(managementUri), new Uri(workloadUri), apiVersion, dockerAuthConfig, upstreamProtocol, proxy, productInfo, closeOnIdleTimeout, idleTimeout, performanceMetricsUpdateFrequency, useServerHeartbeat, backupConfigFilePath, identityBackupFilePath, imageBackupFilePath, disableDeviceAnalyticsMetadata, moduleUpdateMode, edgeletTimeout, enableOrphanedIdentityCleanup, clientPermitTimeoutSecs));
+                        builder.RegisterModule(new EdgeletModule(iothubHostname, deviceId, new Uri(managementUri), new Uri(workloadUri), apiVersion, dockerAuthConfig, upstreamProtocol, proxy, productInfo, closeOnIdleTimeout, idleTimeout, performanceMetricsUpdateFrequency, useServerHeartbeat, backupConfigFilePath, identityBackupFilePath, imageBackupFilePath, disableDeviceAnalyticsMetadata, moduleUpdateMode, edgeletTimeout, enableOrphanedIdentityCleanup, clientPermitTimeoutSecs, enableOfflineCache));
                         IEnumerable<X509Certificate2> trustBundle =
                             await CertificateHelper.GetTrustBundleFromEdgelet(new Uri(workloadUri), apiVersion, Constants.WorkloadApiVersion, moduleId, moduleGenerationId);
                         CertificateHelper.InstallCertificates(trustBundle, logger);
