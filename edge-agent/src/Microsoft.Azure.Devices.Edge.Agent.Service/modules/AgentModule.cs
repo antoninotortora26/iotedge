@@ -351,7 +351,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                             deploymentConfigInfoSerde,
                             await encryptionProvider,
                             availabilityMetric,
-                            this.offlineCheckInfo);
+                            this.offlineCheckInfo,
+                            c.Resolve<IUpdateScheduleManager>());
                     })
                 .As<Task<Agent>>()
                 .SingleInstance();

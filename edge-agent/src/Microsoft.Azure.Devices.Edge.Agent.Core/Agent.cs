@@ -33,6 +33,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         readonly ISerde<DeploymentConfigInfo> deploymentConfigInfoSerde;
         readonly IEncryptionProvider encryptionProvider;
         readonly IDeploymentMetrics deploymentMetrics;
+        readonly IUpdateScheduleManager updateScheduleManager;
         Option<OfflineCheckInfo> offlineCheckInfo;
         IEnvironment environment;
         DeploymentConfigInfo currentConfig;
@@ -50,8 +51,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             ISerde<DeploymentConfigInfo> deploymentConfigInfoSerde,
             IEncryptionProvider encryptionProvider,
             IDeploymentMetrics deploymentMetrics,
-            Option<OfflineCheckInfo> offlineCheckInfo)
+            Option<OfflineCheckInfo> offlineCheckInfo,
+            IUpdateScheduleManager updateScheduleManager = null)
         {
+            this.updateScheduleManager = updateScheduleManager;
             this.configSource = Preconditions.CheckNotNull(configSource, nameof(configSource));
             this.planner = Preconditions.CheckNotNull(planner, nameof(planner));
             this.planRunner = Preconditions.CheckNotNull(planRunner, nameof(planRunner));
@@ -80,7 +83,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             ISerde<DeploymentConfigInfo> deploymentConfigInfoSerde,
             IEncryptionProvider encryptionProvider,
             IDeploymentMetrics deploymentMetrics,
-            Option<OfflineCheckInfo> offlineCheckInfo)
+            Option<OfflineCheckInfo> offlineCheckInfo,
+            IUpdateScheduleManager updateScheduleManager = null)
         {
             Preconditions.CheckNotNull(deploymentConfigInfoSerde, nameof(deploymentConfigInfoSerde));
             Preconditions.CheckNotNull(configStore, nameof(configStore));
@@ -113,7 +117,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                 deploymentConfigInfoSerde,
                 encryptionProvider,
                 deploymentMetrics,
-                offlineCheckInfo);
+                offlineCheckInfo,
+                updateScheduleManager);
             return agent;
         }
 
@@ -336,11 +341,63 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         // This should be called only within the reconcile lock.
         async Task UpdateCurrentConfig(DeploymentConfigInfo deploymentConfigInfo)
         {
+            deploymentConfigInfo = this.KeepDeferredModules(deploymentConfigInfo);
             this.environment = this.environmentProvider.Create(deploymentConfigInfo.DeploymentConfig);
             this.currentConfig = deploymentConfigInfo;
 
             string encryptedConfig = await this.encryptionProvider.EncryptAsync(this.deploymentConfigInfoSerde.Serialize(deploymentConfigInfo));
             await this.configStore.Put(StoreConfigKey, encryptedConfig);
+        }
+
+        // The stored config is what the environment reports as the module's current createOptions, env and desired status.
+        // A module whose update is deferred is still running its previous definition, so it must keep that definition
+        // until the update is applied. Otherwise the planner sees no difference and the change is never applied.
+        DeploymentConfigInfo KeepDeferredModules(DeploymentConfigInfo newConfigInfo)
+        {
+            if (this.updateScheduleManager == null || newConfigInfo.Exception.HasValue)
+            {
+                return newConfigInfo;
+            }
+
+            DeploymentConfig previous = this.currentConfig.DeploymentConfig;
+            DeploymentConfig desired = newConfigInfo.DeploymentConfig;
+            HashSet<string> deferred = this.updateScheduleManager.GetModuleUpdateStatuses()
+                .Where(s => s.Value.State == ModuleUpdateState.Downloaded)
+                .Select(s => s.Key)
+                .ToHashSet();
+            if (deferred.Count == 0)
+            {
+                return newConfigInfo;
+            }
+
+            var modules = new Dictionary<string, IModule>(desired.Modules);
+            bool changed = false;
+            foreach (string name in deferred)
+            {
+                if (modules.TryGetValue(name, out IModule desiredModule)
+                    && previous.Modules.TryGetValue(name, out IModule previousModule)
+                    && !previousModule.Equals(desiredModule))
+                {
+                    modules[name] = previousModule;
+                    changed = true;
+                }
+            }
+
+            SystemModules systemModules = desired.SystemModules;
+            if (deferred.Contains(Constants.EdgeHubModuleName) && desired.SystemModules.EdgeHub.HasValue && previous.SystemModules.EdgeHub.HasValue)
+            {
+                systemModules = new SystemModules(desired.SystemModules.EdgeAgent, previous.SystemModules.EdgeHub);
+                changed = true;
+            }
+
+            if (!changed)
+            {
+                return newConfigInfo;
+            }
+
+            Events.KeepingDeferredModules(deferred);
+            var config = new DeploymentConfig(desired.SchemaVersion, desired.Runtime, systemModules, modules, desired.Integrity.OrDefault());
+            return new DeploymentConfigInfo(newConfigInfo.Version, config);
         }
 
         async Task ShutdownModules(CancellationToken token)
@@ -388,7 +445,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                 InitiatingStopModules,
                 StopModulesFailed,
                 FinishedReconcile,
-                StartingReconcile
+                StartingReconcile,
+                KeepingDeferredModules
             }
 
             public static void AgentCreated()
@@ -424,6 +482,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             public static void ReportShutdown()
             {
                 Log.LogInformation((int)EventIds.ReportShutdown, "Edge agent reporting Edge and module state as unknown.");
+            }
+
+            public static void KeepingDeferredModules(IEnumerable<string> modules)
+            {
+                Log.LogInformation((int)EventIds.KeepingDeferredModules, $"Keeping the applied definition of modules with a deferred update: {string.Join(", ", modules)}");
             }
 
             public static void ReportShutdownFailed(Exception ex)
