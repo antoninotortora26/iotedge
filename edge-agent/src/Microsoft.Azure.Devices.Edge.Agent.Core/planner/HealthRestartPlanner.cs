@@ -207,7 +207,19 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
             {
                 if (current.TryGetModule(module.Name, out IModule currentModule))
                 {
-                    if (module.DesiredStatus != ((IRuntimeModule)currentModule).RuntimeStatus)
+                    // A status-only change follows the module's update mode like any other update.
+                    var runtimeModule = (IRuntimeModule)currentModule;
+                    bool shouldApply = await this.updateScheduleManager.ShouldApplyUpdateAsync(currentModule, module, runtimeModule);
+                    this.updateScheduleManager.SetModuleUpdateState(
+                        module.Name,
+                        shouldApply ? ModuleUpdateState.Applied : ModuleUpdateState.Downloaded,
+                        this.ExtractUpdateMode(module));
+                    if (!shouldApply)
+                    {
+                        continue;
+                    }
+
+                    if (module.DesiredStatus != runtimeModule.RuntimeStatus)
                     {
                         if (module.DesiredStatus == ModuleStatus.Running)
                         {
@@ -342,7 +354,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                     upfrontPullTasks.Add(prepareForUpdateCommand);
                     nonPullTasks.Add(createOrUpdateCommand);
 
-                    if (module.DesiredStatus == ModuleStatus.Running)
+                    // A deferred update must not start the existing container: that start would be seen as the restart that applies it.
+                    if (shouldApply && module.DesiredStatus == ModuleStatus.Running)
                     {
                         nonPullTasks.Add(this.commandFactory.StartAsync(module));
                     }
