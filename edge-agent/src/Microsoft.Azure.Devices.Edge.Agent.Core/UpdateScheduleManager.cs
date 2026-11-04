@@ -110,6 +110,9 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         };
 
         private readonly Dictionary<string, ModuleUpdateStatus> moduleUpdateStatuses = new Dictionary<string, ModuleUpdateStatus>();
+        private readonly Dictionary<string, DateTime> deferredSince = new Dictionary<string, DateTime>();
+        private readonly DateTime agentStartUtc = DateTime.UtcNow;
+        private static readonly TimeSpan StartupGracePeriod = TimeSpan.FromMinutes(1);
         private readonly object stateLock = new object();
         private string defaultUpdateMode = null;
         private string defaultUpdateSchedule = null;
@@ -154,13 +157,19 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                         return Task.FromResult(true);
 
                     case Constants.ImageUpdateModeOnRestart:
-                        // Apply only when module is NOT running or has just restarted
-                        bool isRestarting = this.IsModuleRestarting(next, runtimeModule);
-                        bool isNotRunning = runtimeModule == null || runtimeModule.RuntimeStatus != ModuleStatus.Running;
-                        bool shouldApply = isNotRunning || isRestarting;
+                        // Apply when the module does not exist yet, or when it was started after the update was first deferred.
+                        // A stopped module stays deferred until it is started.
+                        bool isNew = runtimeModule == null;
+                        bool isRestarting = !isNew && this.HasRestartedSinceDeferral(next.Name, runtimeModule);
+                        bool shouldApply = isNew || isRestarting;
                         if (shouldApply)
                         {
-                            string reason = isRestarting ? "module just restarted" : $"module status={runtimeModule?.RuntimeStatus.ToString() ?? "null"}";
+                            lock (this.stateLock)
+                            {
+                                this.deferredSince.Remove(next.Name);
+                            }
+
+                            string reason = isNew ? "new module" : "module restarted since the update was deferred";
                             Log.LogInformation(
                                 "[ImageUpdate] Module '{name}': applying image '{image}' on restart (mode=on_restart, reason={reason})",
                                 next.Name,
@@ -242,6 +251,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         {
             lock (this.stateLock)
             {
+                if (state != ModuleUpdateState.Downloaded)
+                {
+                    this.deferredSince.Remove(moduleName);
+                }
+
                 this.moduleUpdateStatuses[moduleName] = new ModuleUpdateStatus
                 {
                     State = state,
@@ -366,23 +380,22 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             }
         }
 
-        private bool IsModuleRestarting(IModule module, IRuntimeModule runtimeModule)
+        // The first evaluation of a deferred update records the deferral time; only a start after that time counts as a restart.
+        // The in-memory record is lost when the agent restarts (for example on a device reboot), and Docker may have started the
+        // module before the agent process existed. A deferral first seen shortly after the agent started therefore has no
+        // reference time, so any module that has been started counts as restarted.
+        private bool HasRestartedSinceDeferral(string moduleName, IRuntimeModule runtimeModule)
         {
-            // If runtimeModule is null, the module doesn't exist yet, so it's not restarting
-            if (runtimeModule == null)
+            lock (this.stateLock)
             {
-                return false;
-            }
+                if (!this.deferredSince.TryGetValue(moduleName, out DateTime since))
+                {
+                    since = DateTime.UtcNow - this.agentStartUtc <= StartupGracePeriod ? DateTime.MinValue : DateTime.UtcNow;
+                    this.deferredSince[moduleName] = since;
+                }
 
-            // Simple heuristic: if the module's last start time is very recent (within last minute),
-            // it probably just restarted
-            if (runtimeModule.LastStartTimeUtc != DateTime.MinValue)
-            {
-                TimeSpan timeSinceStart = DateTime.UtcNow - runtimeModule.LastStartTimeUtc;
-                return timeSinceStart < TimeSpan.FromMinutes(1);
+                return runtimeModule.LastStartTimeUtc >= since;
             }
-
-            return false;
         }
 
         private string GetModuleImage(IModule module)

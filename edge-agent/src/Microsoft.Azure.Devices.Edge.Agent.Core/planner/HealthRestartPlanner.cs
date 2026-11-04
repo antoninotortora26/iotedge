@@ -207,7 +207,19 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
             {
                 if (current.TryGetModule(module.Name, out IModule currentModule))
                 {
-                    if (module.DesiredStatus != ((IRuntimeModule)currentModule).RuntimeStatus)
+                    // A status-only change follows the module's update mode like any other update.
+                    var runtimeModule = (IRuntimeModule)currentModule;
+                    bool shouldApply = await this.updateScheduleManager.ShouldApplyUpdateAsync(currentModule, module, runtimeModule);
+                    this.updateScheduleManager.SetModuleUpdateState(
+                        module.Name,
+                        shouldApply ? ModuleUpdateState.Applied : ModuleUpdateState.Downloaded,
+                        this.ExtractUpdateMode(module));
+                    if (!shouldApply)
+                    {
+                        continue;
+                    }
+
+                    if (module.DesiredStatus != runtimeModule.RuntimeStatus)
                     {
                         if (module.DesiredStatus == ModuleStatus.Running)
                         {
@@ -342,7 +354,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                     upfrontPullTasks.Add(prepareForUpdateCommand);
                     nonPullTasks.Add(createOrUpdateCommand);
 
-                    if (module.DesiredStatus == ModuleStatus.Running)
+                    // A deferred update must not start the existing container: that start would be seen as the restart that applies it.
+                    if (shouldApply && module.DesiredStatus == ModuleStatus.Running)
                     {
                         nonPullTasks.Add(this.commandFactory.StartAsync(module));
                     }
@@ -429,9 +442,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                 .Where(m => !modulesInDeployment.Contains(m.Name))
                 .Except(updateDeployed.Select(m => current.Modules[m.Name] as IRuntimeModule)).ToList();
 
-            // Find the modules whose desired and runtime status are not the same
+            // Find the modules whose desired and runtime status are not the same.
+            // A failed module already satisfies a desired status of stopped.
             IList<IRuntimeModule> updateStateChanged = currentRuntimeModules
-                .Where(m => m.DesiredStatus != m.RuntimeStatus && m.RuntimeStatus != ModuleStatus.Dead).ToList();
+                .Where(m => m.DesiredStatus != m.RuntimeStatus
+                    && m.RuntimeStatus != ModuleStatus.Dead
+                    && !(m.DesiredStatus == ModuleStatus.Stopped && m.RuntimeStatus == ModuleStatus.Failed)).ToList();
 
             // Identify dead modules
             IList<IRuntimeModule> dead = currentRuntimeModules

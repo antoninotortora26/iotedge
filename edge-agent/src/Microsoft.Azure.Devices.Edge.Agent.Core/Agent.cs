@@ -158,7 +158,10 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
 
                         if (plan.IsEmpty)
                         {
-                            if (this.currentConfig.Version != deploymentConfigInfo.Version)
+                            // An update applied without any command (for example the module already has the desired status)
+                            // still has to be stored, otherwise the stored config never catches up with the desired one.
+                            if (this.currentConfig.Version != deploymentConfigInfo.Version
+                                || !this.currentConfig.DeploymentConfig.Equals(this.KeepDeferredModules(deploymentConfigInfo).DeploymentConfig))
                             {
                                 await this.UpdateCurrentConfig(deploymentConfigInfo);
                             }
