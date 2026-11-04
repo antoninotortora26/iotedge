@@ -4,10 +4,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.IO;
     using System.Linq;
     using System.Threading.Tasks;
     using Microsoft.Azure.Devices.Edge.Util;
     using Microsoft.Extensions.Logging;
+    using Newtonsoft.Json;
 
     /// <summary>
     /// Represents the state of a module update.
@@ -110,9 +112,18 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         };
 
         private readonly Dictionary<string, ModuleUpdateStatus> moduleUpdateStatuses = new Dictionary<string, ModuleUpdateStatus>();
+        private readonly Dictionary<string, DateTime> deferredSince = new Dictionary<string, DateTime>();
         private readonly object stateLock = new object();
+        private readonly DateTime agentStartUtc = DateTime.UtcNow;
+        private readonly string deferralsFilePath;
         private string defaultUpdateMode = null;
         private string defaultUpdateSchedule = null;
+
+        public UpdateScheduleManager(string deferralsFilePath = null)
+        {
+            this.deferralsFilePath = deferralsFilePath;
+            this.LoadDeferrals();
+        }
 
         public Task<bool> ShouldPrepareUpdateAsync(IModule module, IRuntimeModule runtimeModule)
         {
@@ -154,13 +165,22 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                         return Task.FromResult(true);
 
                     case Constants.ImageUpdateModeOnRestart:
-                        // Apply only when module is NOT running or has just restarted
-                        bool isRestarting = this.IsModuleRestarting(next, runtimeModule);
-                        bool isNotRunning = runtimeModule == null || runtimeModule.RuntimeStatus != ModuleStatus.Running;
-                        bool shouldApply = isNotRunning || isRestarting;
+                        // Apply when the module does not exist yet, or when it was started after the update was first deferred.
+                        // A stopped module stays deferred until it is started.
+                        bool isNew = runtimeModule == null;
+                        bool isRestarting = !isNew && this.HasRestartedSinceDeferral(next.Name, runtimeModule);
+                        bool shouldApply = isNew || isRestarting;
                         if (shouldApply)
                         {
-                            string reason = isRestarting ? "module just restarted" : $"module status={runtimeModule?.RuntimeStatus.ToString() ?? "null"}";
+                            lock (this.stateLock)
+                            {
+                                if (this.deferredSince.Remove(next.Name))
+                                {
+                                    this.SaveDeferrals();
+                                }
+                            }
+
+                            string reason = isNew ? "new module" : "module restarted since the update was deferred";
                             Log.LogInformation(
                                 "[ImageUpdate] Module '{name}': applying image '{image}' on restart (mode=on_restart, reason={reason})",
                                 next.Name,
@@ -242,6 +262,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         {
             lock (this.stateLock)
             {
+                if (state != ModuleUpdateState.Downloaded && this.deferredSince.Remove(moduleName))
+                {
+                    this.SaveDeferrals();
+                }
+
                 this.moduleUpdateStatuses[moduleName] = new ModuleUpdateStatus
                 {
                     State = state,
@@ -366,23 +391,70 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             }
         }
 
-        private bool IsModuleRestarting(IModule module, IRuntimeModule runtimeModule)
+        private bool HasRestartedSinceDeferral(string moduleName, IRuntimeModule runtimeModule)
         {
-            // If runtimeModule is null, the module doesn't exist yet, so it's not restarting
-            if (runtimeModule == null)
+            lock (this.stateLock)
             {
-                return false;
+                var now = DateTime.UtcNow;
+
+                if (!this.deferredSince.TryGetValue(moduleName, out DateTime since))
+                {
+                    this.deferredSince[moduleName] = now; // Save timestamp of the new module arrival
+                    this.SaveDeferrals();
+                    return false;
+                }
+
+                return runtimeModule.LastStartTimeUtc >= since || this.agentStartUtc >= since;
+            }
+        }
+
+        private void LoadDeferrals()
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(this.deferralsFilePath) && File.Exists(this.deferralsFilePath))
+                {
+                    var stored = JsonConvert.DeserializeObject<Dictionary<string, DateTime>>(File.ReadAllText(this.deferralsFilePath));
+                    if (stored != null)
+                    {
+                        foreach (KeyValuePair<string, DateTime> entry in stored)
+                        {
+                            this.deferredSince[entry.Key] = entry.Value.ToUniversalTime();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                Log.LogWarning(ex, "[ImageUpdate] Could not read the deferred updates file {path}.", this.deferralsFilePath);
+            }
+        }
+
+        // Must be called while holding stateLock.
+        private void SaveDeferrals()
+        {
+            if (string.IsNullOrWhiteSpace(this.deferralsFilePath))
+            {
+                return;
             }
 
-            // Simple heuristic: if the module's last start time is very recent (within last minute),
-            // it probably just restarted
-            if (runtimeModule.LastStartTimeUtc != DateTime.MinValue)
+            try
             {
-                TimeSpan timeSinceStart = DateTime.UtcNow - runtimeModule.LastStartTimeUtc;
-                return timeSinceStart < TimeSpan.FromMinutes(1);
-            }
+                string dir = Path.GetDirectoryName(this.deferralsFilePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
 
-            return false;
+                string tmpPath = this.deferralsFilePath + ".tmp";
+                File.WriteAllText(tmpPath, JsonConvert.SerializeObject(this.deferredSince));
+                File.Copy(tmpPath, this.deferralsFilePath, true);
+                File.Delete(tmpPath);
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                Log.LogWarning(ex, "[ImageUpdate] Could not write the deferred updates file {path}.", this.deferralsFilePath);
+            }
         }
 
         private string GetModuleImage(IModule module)

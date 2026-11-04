@@ -38,7 +38,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
         readonly Option<StorageLogLevel> storageLogLevel;
         readonly ModuleUpdateMode moduleUpdateMode;
         readonly Option<OfflineCheckInfo> offlineCheckInfo;
-
+        readonly string deferredUpdatesFilePath;
         public AgentModule(
             int maxRestartCount,
             TimeSpan intensiveCareTime,
@@ -90,9 +90,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
             Option<int> storageMaxOpenFiles,
             Option<StorageLogLevel> storageLogLevel,
             ModuleUpdateMode moduleUpdateMode,
-            Option<OfflineCheckInfo> offlineCheckInfo)
+            Option<OfflineCheckInfo> offlineCheckInfo,
+            string deferredUpdatesFilePath = null)
         {
             this.maxRestartCount = maxRestartCount;
+            this.deferredUpdatesFilePath = deferredUpdatesFilePath;
             this.intensiveCareTime = intensiveCareTime;
             this.coolOffTimeUnitInSeconds = coolOffTimeUnitInSeconds;
             this.usePersistentStorage = usePersistentStorage;
@@ -275,7 +277,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service.Modules
                 .SingleInstance();
 
             // IUpdateScheduleManager
-            builder.Register(c => new UpdateScheduleManager())
+            builder.Register(c => new UpdateScheduleManager(this.deferredUpdatesFilePath))
                 .As<IUpdateScheduleManager>()
                 .SingleInstance();
 
