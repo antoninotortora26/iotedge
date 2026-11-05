@@ -30,6 +30,7 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
         readonly RocksDb db;
         readonly ColumnFamiliesProvider columnFamiliesProvider;
         static readonly object ColumnFamiliesLock = new object();
+        static readonly WriteOptions SyncWriteOptions = new WriteOptions().SetSync(true);
 
         ColumnFamilyStorageRocksDbWrapper(RocksDb db, ColumnFamiliesProvider columnFamiliesProvider)
         {
@@ -96,6 +97,8 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
         public byte[] Get(byte[] key, ColumnFamilyHandle handle) => this.db.Get(key, handle);
 
         public void Put(byte[] key, byte[] value, ColumnFamilyHandle handle) => this.db.Put(key, value, handle);
+
+        public void PutSync(byte[] key, byte[] value, ColumnFamilyHandle handle) => this.db.Put(key, value, handle, SyncWriteOptions);
 
         public void Remove(byte[] key, ColumnFamilyHandle handle)
         {

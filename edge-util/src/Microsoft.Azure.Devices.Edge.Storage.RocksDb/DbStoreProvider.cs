@@ -14,6 +14,7 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
     {
         const string DefaultPartitionName = "default";
         static readonly TimeSpan CompactionPeriod = TimeSpan.FromHours(2);
+        static readonly HashSet<string> SyncPartitions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "deploymentConfig" };
         readonly IRocksDbOptionsProvider optionsProvider;
         readonly IRocksDb db;
         readonly ConcurrentDictionary<string, IDbStore> entityDbStoreDictionary;
@@ -36,7 +37,7 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
             foreach (string columnFamilyName in columnFamilies)
             {
                 ColumnFamilyHandle handle = db.GetColumnFamily(columnFamilyName);
-                var dbStorePartition = new ColumnFamilyDbStore(db, handle);
+                var dbStorePartition = new ColumnFamilyDbStore(db, handle, SyncPartitions.Contains(columnFamilyName));
                 entityDbStoreDictionary[columnFamilyName] = dbStorePartition;
             }
 
@@ -50,7 +51,7 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
             if (!this.entityDbStoreDictionary.TryGetValue(partitionName, out IDbStore entityDbStore))
             {
                 ColumnFamilyHandle handle = this.db.CreateColumnFamily(this.optionsProvider.GetColumnFamilyOptions(), partitionName);
-                entityDbStore = new ColumnFamilyDbStore(this.db, handle);
+                entityDbStore = new ColumnFamilyDbStore(this.db, handle, SyncPartitions.Contains(partitionName));
                 entityDbStore = this.entityDbStoreDictionary.GetOrAdd(partitionName, entityDbStore);
             }
 
