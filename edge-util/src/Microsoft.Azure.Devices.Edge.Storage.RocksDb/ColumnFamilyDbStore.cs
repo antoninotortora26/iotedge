@@ -12,10 +12,12 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
     class ColumnFamilyDbStore : IDbStore
     {
         readonly IRocksDb db;
-        private long count;
+        readonly bool syncWrites;
+        long count;
 
-        public ColumnFamilyDbStore(IRocksDb db, ColumnFamilyHandle handle)
+        public ColumnFamilyDbStore(IRocksDb db, ColumnFamilyHandle handle, bool syncWrites = false)
         {
+            this.syncWrites = syncWrites;
             this.db = Preconditions.CheckNotNull(db, nameof(db));
             this.Handle = Preconditions.CheckNotNull(handle, nameof(handle));
 
@@ -64,7 +66,9 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
             Preconditions.CheckNotNull(key, nameof(key));
             Preconditions.CheckNotNull(value, nameof(value));
 
-            Action operation = () => this.db.Put(key, value, this.Handle);
+            Action operation = this.syncWrites
+                ? () => this.db.PutSync(key, value, this.Handle)
+                : (Action)(() => this.db.Put(key, value, this.Handle));
             await operation.ExecuteUntilCancelled(cancellationToken);
             Interlocked.Increment(ref this.count);
         }

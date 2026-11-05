@@ -14,6 +14,7 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
     /// </summary>
     sealed class RocksDbWrapper : IRocksDb
     {
+        static readonly WriteOptions SyncWriteOptions = new WriteOptions().SetSync(true);
         readonly AtomicBoolean isDisposed = new AtomicBoolean(false);
         readonly RocksDb db;
         readonly string path;
@@ -57,6 +58,8 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
         public byte[] Get(byte[] key, ColumnFamilyHandle handle) => this.db.Get(key, handle);
 
         public void Put(byte[] key, byte[] value, ColumnFamilyHandle handle) => this.db.Put(key, value, handle);
+
+        public void PutSync(byte[] key, byte[] value, ColumnFamilyHandle handle) => this.db.Put(key, value, handle, SyncWriteOptions);
 
         public void Remove(byte[] key, ColumnFamilyHandle handle) => this.db.Remove(key, handle);
 

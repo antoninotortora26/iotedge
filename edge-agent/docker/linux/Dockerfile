@@ -14,4 +14,4 @@ WORKDIR /app
 
 COPY $EXE_DIR/ ./
 
-CMD exec /app/agentStart.sh
+CMD ["/app/agentStart.sh"]
