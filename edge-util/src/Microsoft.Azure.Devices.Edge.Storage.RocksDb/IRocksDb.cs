@@ -19,6 +19,8 @@ namespace Microsoft.Azure.Devices.Edge.Storage.RocksDb
 
         void Put(byte[] key, byte[] value, ColumnFamilyHandle handle);
 
+        void PutSync(byte[] key, byte[] value, ColumnFamilyHandle handle);
+
         void Remove(byte[] key, ColumnFamilyHandle handle);
 
         Iterator NewIterator(ColumnFamilyHandle handle, ReadOptions readOptions);
