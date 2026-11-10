@@ -101,6 +101,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
             string identityBackupFilePath;
             string imageBackupFilePath;
             string deferredUpdatesFilePath;
+            string updateStatusFilePath;
             bool enableOfflineCache;
             int maxRestartCount;
             TimeSpan intensiveCareTime;
@@ -128,6 +129,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                 identityBackupFilePath = configuration.GetValue<string>("IdentityBackupFilePath");
                 imageBackupFilePath = configuration.GetValue<string>("ImageBackupFilePath");
                 deferredUpdatesFilePath = configuration.GetValue("DeferredUpdatesFilePath", "deferred_updates.json");
+                updateStatusFilePath = configuration.GetValue("UpdateStatusFilePath", "update_status.json");
                 maxRestartCount = configuration.GetValue<int>("MaxRestartCount");
                 intensiveCareTime = TimeSpan.FromMinutes(configuration.GetValue<int>("IntensiveCareTimeInMinutes"));
                 coolOffTimeUnitInSeconds = configuration.GetValue("CoolOffTimeUnitInSeconds", 10);
@@ -152,6 +154,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                 identityBackupFilePath = GetFullBackupFilePath(storagePath, identityBackupFilePath);
                 imageBackupFilePath = GetFullBackupFilePath(storagePath, imageBackupFilePath);
                 deferredUpdatesFilePath = GetFullBackupFilePath(storagePath, deferredUpdatesFilePath);
+                updateStatusFilePath = GetFullBackupFilePath(storagePath, updateStatusFilePath);
                 edgeDeviceHostName = configuration.GetValue<string>(Constants.EdgeDeviceHostNameKey);
                 dockerAuthConfig = configuration.GetSection("DockerRegistryAuth").Get<List<global::Docker.DotNet.Models.AuthConfig>>() ?? new List<global::Docker.DotNet.Models.AuthConfig>();
 
@@ -225,7 +228,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Service
                         string moduleGenerationId = configuration.GetValue<string>(Constants.EdgeletModuleGenerationIdVariableName);
                         apiVersion = configuration.GetValue<string>(Constants.EdgeletApiVersionVariableName);
                         TimeSpan performanceMetricsUpdateFrequency = configuration.GetTimeSpan("PerformanceMetricsUpdateFrequency", TimeSpan.FromMinutes(5));
-                        builder.RegisterModule(new AgentModule(maxRestartCount, intensiveCareTime, coolOffTimeUnitInSeconds, usePersistentStorage, storagePath, Option.Some(new Uri(workloadUri)), Option.Some(apiVersion), moduleId, Option.Some(moduleGenerationId), enableNonPersistentStorageBackup, storageBackupPath, storageTotalMaxWalSize, storageMaxManifestFileSize, storageMaxOpenFiles, storageLogLevel, moduleUpdateMode,  offlineCheckInfo, deferredUpdatesFilePath));
+                        builder.RegisterModule(new AgentModule(maxRestartCount, intensiveCareTime, coolOffTimeUnitInSeconds, usePersistentStorage, storagePath, Option.Some(new Uri(workloadUri)), Option.Some(apiVersion), moduleId, Option.Some(moduleGenerationId), enableNonPersistentStorageBackup, storageBackupPath, storageTotalMaxWalSize, storageMaxManifestFileSize, storageMaxOpenFiles, storageLogLevel, moduleUpdateMode,  offlineCheckInfo, deferredUpdatesFilePath, updateStatusFilePath));
                         builder.RegisterModule(new EdgeletModule(iothubHostname, deviceId, new Uri(managementUri), new Uri(workloadUri), apiVersion, dockerAuthConfig, upstreamProtocol, proxy, productInfo, closeOnIdleTimeout, idleTimeout, performanceMetricsUpdateFrequency, useServerHeartbeat, backupConfigFilePath, identityBackupFilePath, imageBackupFilePath, disableDeviceAnalyticsMetadata, moduleUpdateMode, edgeletTimeout, enableOrphanedIdentityCleanup, clientPermitTimeoutSecs, enableOfflineCache));
                         IEnumerable<X509Certificate2> trustBundle =
                             await CertificateHelper.GetTrustBundleFromEdgelet(new Uri(workloadUri), apiVersion, Constants.WorkloadApiVersion, moduleId, moduleGenerationId);

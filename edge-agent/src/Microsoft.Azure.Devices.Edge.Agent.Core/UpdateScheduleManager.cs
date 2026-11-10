@@ -116,13 +116,16 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         private readonly object stateLock = new object();
         private readonly DateTime agentStartUtc = DateTime.UtcNow;
         private readonly string deferralsFilePath;
+        private readonly string updateStatusFilePath;
         private string defaultUpdateMode = null;
         private string defaultUpdateSchedule = null;
 
-        public UpdateScheduleManager(string deferralsFilePath = null)
+        public UpdateScheduleManager(string deferralsFilePath = null, string updateStatusFilePath = null)
         {
             this.deferralsFilePath = deferralsFilePath;
+            this.updateStatusFilePath = updateStatusFilePath;
             this.LoadDeferrals();
+            this.LoadUpdateStatuses();
         }
 
         public Task<bool> ShouldPrepareUpdateAsync(IModule module, IRuntimeModule runtimeModule)
@@ -267,11 +270,20 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                     this.SaveDeferrals();
                 }
 
+                bool changed = !this.moduleUpdateStatuses.TryGetValue(moduleName, out ModuleUpdateStatus existing)
+                    || existing.State != state
+                    || existing.UpdateMode != updateMode;
+
                 this.moduleUpdateStatuses[moduleName] = new ModuleUpdateStatus
                 {
                     State = state,
                     UpdateMode = updateMode
                 };
+
+                if (changed)
+                {
+                    this.SaveUpdateStatuses();
+                }
 
                 Log.LogInformation(
                     "[ImageUpdate] Module '{name}' state updated: {state}, mode: {mode}",
@@ -454,6 +466,58 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             catch (Exception ex) when (!ex.IsFatal())
             {
                 Log.LogWarning(ex, "[ImageUpdate] Could not write the deferred updates file {path}.", this.deferralsFilePath);
+            }
+        }
+
+        private void LoadUpdateStatuses()
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(this.updateStatusFilePath) && File.Exists(this.updateStatusFilePath))
+                {
+                    var stored = JsonConvert.DeserializeObject<Dictionary<string, ModuleUpdateStatus>>(File.ReadAllText(this.updateStatusFilePath));
+                    if (stored != null)
+                    {
+                        foreach (KeyValuePair<string, ModuleUpdateStatus> entry in stored)
+                        {
+                            if (entry.Value != null)
+                            {
+                                this.moduleUpdateStatuses[entry.Key] = entry.Value;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                Log.LogWarning(ex, "[ImageUpdate] Could not read the update status file {path}.", this.updateStatusFilePath);
+            }
+        }
+
+        // Must be called while holding stateLock.
+        private void SaveUpdateStatuses()
+        {
+            if (string.IsNullOrWhiteSpace(this.updateStatusFilePath))
+            {
+                return;
+            }
+
+            try
+            {
+                string dir = Path.GetDirectoryName(this.updateStatusFilePath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                string tmpPath = this.updateStatusFilePath + ".tmp";
+                File.WriteAllText(tmpPath, JsonConvert.SerializeObject(this.moduleUpdateStatuses));
+                File.Copy(tmpPath, this.updateStatusFilePath, true);
+                File.Delete(tmpPath);
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                Log.LogWarning(ex, "[ImageUpdate] Could not write the update status file {path}.", this.updateStatusFilePath);
             }
         }
 
