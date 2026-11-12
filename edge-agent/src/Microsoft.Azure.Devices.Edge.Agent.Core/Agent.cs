@@ -377,9 +377,14 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
             bool changed = false;
             foreach (string name in deferred)
             {
-                if (modules.TryGetValue(name, out IModule desiredModule)
-                    && previous.Modules.TryGetValue(name, out IModule previousModule)
-                    && !previousModule.Equals(desiredModule))
+                if (!previous.Modules.TryGetValue(name, out IModule previousModule))
+                {
+                    // A new module whose creation must not be stored,
+                    // otherwise the planner would treat it as "previously applied" and create it right away.
+                    modules.Remove(name);
+                    changed = true;
+                }
+                else if (!previousModule.Equals(modules.TryGetValue(name, out IModule desiredModule)))
                 {
                     modules[name] = previousModule;
                     changed = true;

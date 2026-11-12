@@ -104,7 +104,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                 IEnumerable<KeyValuePair<string, IModule>> desiredMatchingCurrentModules = current.Modules.Where(x => priorityBasedDesiredSet.Modules.ContainsKey(x.Key));
                 ModuleSet priorityBasedCurrentSet = ModuleSet.Create(
                     desiredMatchingCurrentModules
-                    .Union(currentPriorityGroups[priority].Where(x => !processedDesiredMatchingCurrentModules.Contains(x.Key)))
+                    .Union(currentPriorityGroups[priority].Where(x => !processedDesiredMatchingCurrentModules.Contains(x.Key) && !desired.Modules.ContainsKey(x.Key)))
                     .Select(y => y.Value)
                     .ToArray());
                 processedDesiredMatchingCurrentModules.UnionWith(desiredMatchingCurrentModules.Select(x => x.Key));
@@ -354,10 +354,33 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                     upfrontPullTasks.Add(prepareForUpdateCommand);
                     nonPullTasks.Add(createOrUpdateCommand);
 
-                    // A deferred update must not start the existing container: that start would be seen as the restart that applies it.
                     if (shouldApply && module.DesiredStatus == ModuleStatus.Running)
                     {
                         nonPullTasks.Add(this.commandFactory.StartAsync(module));
+                    }
+                    else if (!shouldApply && runtimeModule != null)
+                    {
+                        // While the update is deferred the container keeps following its applied definition
+                        // (runtimeModule), not the deferred one (module): the normal state-change path skips modules being updated.
+                        bool isOnRestart = this.updateScheduleManager.GetUpdateMode(module) == Constants.ImageUpdateModeOnRestart;
+                        if (runtimeModule.DesiredStatus == ModuleStatus.Running && !isOnRestart)
+                        {
+                            // on_restart is excluded: there a start is what applies the update.
+                            if (runtimeModule.RuntimeStatus == ModuleStatus.Stopped
+                                && (runtimeModule.RestartPolicy > RestartPolicy.Never || runtimeModule.LastStartTimeUtc == DateTime.MinValue))
+                            {
+                                nonPullTasks.Add(this.commandFactory.StartAsync(runtimeModule));
+                            }
+                            else if (runtimeModule.RuntimeStatus == ModuleStatus.Backoff)
+                            {
+                                nonPullTasks.AddRange(this.ApplyRestartPolicy(new[] { runtimeModule }));
+                            }
+                        }
+                        else if (runtimeModule.DesiredStatus == ModuleStatus.Stopped
+                            && (runtimeModule.RuntimeStatus == ModuleStatus.Running || runtimeModule.RuntimeStatus == ModuleStatus.Unhealthy))
+                        {
+                            nonPullTasks.Add(this.commandFactory.StopAsync(runtimeModule));
+                        }
                     }
 
                     nonPullGroupTasks.Add(Task.WhenAll(nonPullTasks));
