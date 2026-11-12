@@ -98,6 +98,11 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
         /// <param name="defaultMode">The default update mode (e.g., on_restart, immediate).</param>
         /// <param name="defaultSchedule">The default schedule for scheduled mode (e.g., "23:00").</param>
         void SetDefaultConfiguration(string defaultMode, string defaultSchedule);
+
+        /// <summary>
+        /// Gets the effective update mode of a module (module env var, then edgeAgent default, then immediate).
+        /// </summary>
+        string GetUpdateMode(IModule module);
     }
 
     public class UpdateScheduleManager : IUpdateScheduleManager
@@ -312,7 +317,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                 defaultSchedule ?? "<not set>");
         }
 
-        private string GetUpdateMode(IModule module)
+        public string GetUpdateMode(IModule module)
         {
             // Priority 1: Check module-specific environment variable
             if (module.Env?.ContainsKey(Constants.ImageUpdateModeVariableName) ?? false)

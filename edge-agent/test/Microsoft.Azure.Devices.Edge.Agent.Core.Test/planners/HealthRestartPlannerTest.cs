@@ -570,6 +570,140 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test.Planners
             factory.Recorder.ForEach(r => Assert.Equal(executionList, r.ExecutionList));
         }
 
+        [Unit]
+        [Theory]
+        [InlineData(0u, 1u)]
+        [InlineData(1u, 0u)]
+        public async Task TestDeferredUpdateWithStartupOrderChangeKeepsRunningModule(uint currentOrder, uint desiredOrder)
+        {
+            (TestCommandFactory factory, HealthRestartPlanner planner) = CreateDeferredPlanner(Constants.ImageUpdateModeScheduled);
+            IRuntimeModule current = CreateDeferredRuntimeModule(ModuleStatus.Running, ModuleStatus.Running, currentOrder);
+            IModule desired = CreateDeferredDesiredModule(ModuleStatus.Running, desiredOrder);
+
+            await RunDeferredPlanAsync(planner, desired, current);
+
+            // Only the image pull is expected: the running container must not be stopped, removed or updated.
+            AssertExecuted(factory, new TestRecordType(TestCommandType.TestPrepareUpdate, desired));
+        }
+
+        [Unit]
+        [Fact]
+        public async Task TestDeferredUpdateRestartsModuleInBackoff()
+        {
+            (TestCommandFactory factory, HealthRestartPlanner planner) = CreateDeferredPlanner(Constants.ImageUpdateModeScheduled);
+            IRuntimeModule current = CreateDeferredRuntimeModule(ModuleStatus.Running, ModuleStatus.Backoff, Constants.DefaultStartupOrder);
+            IModule desired = CreateDeferredDesiredModule(ModuleStatus.Stopped, Constants.DefaultStartupOrder);
+
+            await RunDeferredPlanAsync(planner, desired, current);
+
+            // The saved status (Running) decides, not the deferred one (Stopped).
+            AssertExecuted(
+                factory,
+                new TestRecordType(TestCommandType.TestPrepareUpdate, desired),
+                new TestRecordType(TestCommandType.TestStop, current),
+                new TestRecordType(TestCommandType.TestStart, current));
+        }
+
+        [Unit]
+        [Fact]
+        public async Task TestDeferredUpdateStartsStoppedModule()
+        {
+            (TestCommandFactory factory, HealthRestartPlanner planner) = CreateDeferredPlanner(Constants.ImageUpdateModeScheduled);
+            IRuntimeModule current = CreateDeferredRuntimeModule(ModuleStatus.Running, ModuleStatus.Stopped, Constants.DefaultStartupOrder);
+            IModule desired = CreateDeferredDesiredModule(ModuleStatus.Running, Constants.DefaultStartupOrder);
+
+            await RunDeferredPlanAsync(planner, desired, current);
+
+            AssertExecuted(
+                factory,
+                new TestRecordType(TestCommandType.TestPrepareUpdate, desired),
+                new TestRecordType(TestCommandType.TestStart, current));
+        }
+
+        [Unit]
+        [Fact]
+        public async Task TestDeferredOnRestartUpdateDoesNotStartStoppedModule()
+        {
+            (TestCommandFactory factory, HealthRestartPlanner planner) = CreateDeferredPlanner(Constants.ImageUpdateModeOnRestart);
+            IRuntimeModule current = CreateDeferredRuntimeModule(ModuleStatus.Running, ModuleStatus.Stopped, Constants.DefaultStartupOrder);
+            IModule desired = CreateDeferredDesiredModule(ModuleStatus.Running, Constants.DefaultStartupOrder);
+
+            await RunDeferredPlanAsync(planner, desired, current);
+
+            // A start would apply the update in on_restart mode, so the agent must leave the module alone.
+            AssertExecuted(factory, new TestRecordType(TestCommandType.TestPrepareUpdate, desired));
+        }
+
+        [Unit]
+        [Fact]
+        public async Task TestDeferredUpdateStopsRunningModuleWhoseSavedStatusIsStopped()
+        {
+            (TestCommandFactory factory, HealthRestartPlanner planner) = CreateDeferredPlanner(Constants.ImageUpdateModeScheduled);
+            IRuntimeModule current = CreateDeferredRuntimeModule(ModuleStatus.Stopped, ModuleStatus.Running, Constants.DefaultStartupOrder);
+            IModule desired = CreateDeferredDesiredModule(ModuleStatus.Running, Constants.DefaultStartupOrder);
+
+            await RunDeferredPlanAsync(planner, desired, current);
+
+            AssertExecuted(
+                factory,
+                new TestRecordType(TestCommandType.TestPrepareUpdate, desired),
+                new TestRecordType(TestCommandType.TestStop, current));
+        }
+
+        static (TestCommandFactory factory, HealthRestartPlanner planner) CreateDeferredPlanner(string updateMode)
+        {
+            var factory = new TestCommandFactory();
+            var store = new Mock<IEntityStore<string, ModuleState>>();
+            var restartManager = new RestartPolicyManager(MaxRestartCount, CoolOffTimeUnitInSeconds);
+
+            // Pull the image but never apply the update, as for a deferred update.
+            var updateScheduleManager = new Mock<IUpdateScheduleManager>();
+            updateScheduleManager
+                .Setup(m => m.ShouldPrepareUpdateAsync(It.IsAny<IModule>(), It.IsAny<IRuntimeModule>()))
+                .ReturnsAsync(true);
+            updateScheduleManager
+                .Setup(m => m.ShouldApplyUpdateAsync(It.IsAny<IModule>(), It.IsAny<IModule>(), It.IsAny<IRuntimeModule>()))
+                .ReturnsAsync(false);
+            updateScheduleManager
+                .Setup(m => m.GetUpdateMode(It.IsAny<IModule>()))
+                .Returns(updateMode);
+
+            var planner = new HealthRestartPlanner(new StandardCommandFactory(factory), store.Object, IntensiveCareTime, restartManager, updateScheduleManager.Object);
+            return (factory, planner);
+        }
+
+        static IRuntimeModule CreateDeferredRuntimeModule(ModuleStatus savedDesiredStatus, ModuleStatus runtimeStatus, uint startupOrder) =>
+            new TestRuntimeModule(
+                "mod1",
+                "version1",
+                RestartPolicy.Always,
+                "test",
+                savedDesiredStatus,
+                Config1,
+                0,
+                string.Empty,
+                DateTime.UtcNow - TimeSpan.FromHours(2),
+                DateTime.UtcNow - TimeSpan.FromHours(1),
+                0,
+                DateTime.MinValue,
+                runtimeStatus,
+                ImagePullPolicy.OnCreate,
+                startupOrder);
+
+        static IModule CreateDeferredDesiredModule(ModuleStatus desiredStatus, uint startupOrder) =>
+            new TestModule("mod1", "version1", "test", desiredStatus, Config2, RestartPolicy.Always, ImagePullPolicy.OnCreate, startupOrder, DefaultConfigurationInfo, EnvVars);
+
+        static async Task RunDeferredPlanAsync(HealthRestartPlanner planner, IModule desired, IRuntimeModule current)
+        {
+            IImmutableDictionary<string, IModuleIdentity> identities = GetModuleIdentities(new List<IModule> { desired });
+            Plan plan = await planner.PlanAsync(ModuleSet.Create(desired), ModuleSet.Create(current), RuntimeInfo, identities);
+            var planRunner = new OrderedRetryPlanRunner(MaxRunCount, CoolOffTimeUnitInSeconds, new SystemTime());
+            await planRunner.ExecuteAsync(1, plan, CancellationToken.None);
+        }
+
+        static void AssertExecuted(TestCommandFactory factory, params TestRecordType[] expected) =>
+            factory.Recorder.ForEach(r => Assert.Equal(expected.ToList(), r.ExecutionList));
+
         static (TestCommandFactory factory, Mock<IEntityStore<string, ModuleState>> store, IRestartPolicyManager restartManager, HealthRestartPlanner planner, ICommandFactory commandFactory) CreatePlanner()
         {
             var testFactory = new TestCommandFactory();
