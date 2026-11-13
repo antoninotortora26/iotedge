@@ -154,7 +154,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                         // no new identities need to be created. This will simplify the logic to allow EdgeAgent to work when offline.
                         // But that required ModuleSet.Diff to be updated to include modules updated by deployment, and modules updated by state change.
                         IImmutableDictionary<string, IModuleIdentity> identities = await this.moduleIdentityLifecycleManager.GetModuleIdentitiesAsync(desiredModuleSet, current);
-                        Plan plan = await this.planner.PlanAsync(desiredModuleSet, current, deploymentConfig.Runtime, identities);
+                        Plan plan = await this.planner.PlanAsync(desiredModuleSet, current, deploymentConfig.Runtime, identities, this.currentConfig.DeploymentConfig.GetModuleSet());
 
                         if (plan.IsEmpty)
                         {
@@ -368,6 +368,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core
                 .Where(s => s.Value.State == ModuleUpdateState.Downloaded)
                 .Select(s => s.Key)
                 .ToHashSet();
+
             if (deferred.Count == 0)
             {
                 return newConfigInfo;

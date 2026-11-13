@@ -131,7 +131,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             mockEnvironment.Setup(env => env.GetRuntimeInfoAsync()).ReturnsAsync(runtimeInfo);
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet))
                 .ReturnsAsync(ImmutableDictionary<string, IModuleIdentity>.Empty);
-            mockPlanner.Setup(pl => pl.PlanAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty))
+            mockPlanner.Setup(pl => pl.PlanAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()))
                 .Returns(Task.FromResult(Plan.Empty));
             mockReporter.Setup(r => r.ReportAsync(token, It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<long>(), DeploymentStatus.Success))
                 .Returns(Task.CompletedTask);
@@ -141,7 +141,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             await agent.ReconcileAsync(token);
 
             mockEnvironment.Verify(env => env.GetModulesAsync(token), Times.Once);
-            mockPlanner.Verify(pl => pl.PlanAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty), Times.Once);
+            mockPlanner.Verify(pl => pl.PlanAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()), Times.Once);
             mockReporter.Verify(r => r.ReportAsync(token, currentModuleSet, runtimeInfo, deploymentConfigInfo.Version, DeploymentStatus.Success), Times.Once);
             mockPlanRunner.Verify(r => r.ExecuteAsync(1, Plan.Empty, token), Times.Never);
         }
@@ -175,7 +175,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             // Act
             // Assert
             await agent.ReconcileAsync(token);
-            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>()), Times.Never);
+            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>(), It.IsAny<ModuleSet>()), Times.Never);
             mockReporter.VerifyAll();
             mockPlanRunner.Verify(r => r.ExecuteAsync(1, It.IsAny<Plan>(), token), Times.Never);
         }
@@ -214,7 +214,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             // Act
             // Assert
             await agent.ReconcileAsync(token);
-            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>()), Times.Never);
+            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>(), It.IsAny<ModuleSet>()), Times.Never);
             mockReporter.VerifyAll();
             mockPlanRunner.Verify(r => r.ExecuteAsync(1, It.IsAny<Plan>(), token), Times.Never);
         }
@@ -249,7 +249,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             // Act
             // Assert
             await agent.ReconcileAsync(token);
-            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>()), Times.Never);
+            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>(), It.IsAny<ModuleSet>()), Times.Never);
             mockReporter.VerifyAll();
             mockPlanRunner.Verify(r => r.ExecuteAsync(1, It.IsAny<Plan>(), token), Times.Never);
         }
@@ -296,7 +296,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             // Act
             // Assert
             await agent.ReconcileAsync(token);
-            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>()), Times.Never);
+            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>(), It.IsAny<ModuleSet>()), Times.Never);
             mockReporter.VerifyAll();
             mockPlanRunner.Verify(r => r.ExecuteAsync(1, It.IsAny<Plan>(), token), Times.Never);
         }
@@ -347,7 +347,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             mockEnvironment.Setup(env => env.GetRuntimeInfoAsync()).ReturnsAsync(runtimeInfo);
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet))
                 .ReturnsAsync(ImmutableDictionary<string, IModuleIdentity>.Empty);
-            mockPlanner.Setup(pl => pl.PlanAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty))
+            mockPlanner.Setup(pl => pl.PlanAsync(It.Is<ModuleSet>(ms => ms.Equals(desiredModuleSet)), currentModuleSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()))
                 .ReturnsAsync(testPlan);
             encryptionDecryptionProvider.Setup(ep => ep.EncryptAsync(It.IsAny<string>()))
                 .ThrowsAsync(new WorkloadCommunicationException("failed", 404));
@@ -357,7 +357,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             await agent.ReconcileAsync(token);
 
             // Assert
-            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>()), Times.Once);
+            mockPlanner.Verify(p => p.PlanAsync(It.IsAny<ModuleSet>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<ImmutableDictionary<string, IModuleIdentity>>(), It.IsAny<ModuleSet>()), Times.Once);
             mockReporter.Verify(r => r.ReportAsync(It.IsAny<CancellationToken>(), It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), 0, new DeploymentStatus(DeploymentStatusCode.Failed, "failed")));
             mockPlanRunner.Verify(r => r.ExecuteAsync(0, It.IsAny<Plan>(), token), Times.Once);
             encryptionDecryptionProvider.Verify(ep => ep.EncryptAsync(It.IsAny<string>()), Times.Exactly(2));
@@ -405,7 +405,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
                 .ReturnsAsync(currentSet);
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(desiredSet, currentSet))
                 .ReturnsAsync(ImmutableDictionary<string, IModuleIdentity>.Empty);
-            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty))
+            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()))
                 .Returns(Task.FromResult(testPlan));
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(It.IsAny<ModuleSet>(), currentSet))
                 .Returns(Task.FromResult((IImmutableDictionary<string, IModuleIdentity>)ImmutableDictionary<string, IModuleIdentity>.Empty));
@@ -417,7 +417,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             await agent.ReconcileAsync(token);
 
             mockEnvironment.Verify(env => env.GetModulesAsync(token), Times.Exactly(1));
-            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty), Times.Once);
+            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()), Times.Once);
             mockReporter.VerifyAll();
             recordKeeper.ForEach(r => Assert.Equal(moduleExecutionList, r.ExecutionList));
         }
@@ -454,7 +454,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
                 .ReturnsAsync(currentSet);
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(desiredSet, currentSet))
                 .ReturnsAsync(ImmutableDictionary<string, IModuleIdentity>.Empty);
-            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty))
+            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()))
                 .Returns(Task.FromResult(testPlan));
             mockReporter.Setup(r => r.ReportAsync(token, It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<long>(), DeploymentStatus.Success))
                 .Returns(Task.CompletedTask);
@@ -464,7 +464,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             await agent.ReconcileAsync(token);
 
             mockEnvironment.Verify(env => env.GetModulesAsync(token), Times.Exactly(1));
-            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty), Times.Once);
+            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()), Times.Once);
             mockReporter.Verify(r => r.ReportAsync(token, It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<long>(), DeploymentStatus.Success), Times.Once);
         }
 
@@ -567,7 +567,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
                 .ReturnsAsync(currentSet);
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(desiredSet, currentSet))
                 .ReturnsAsync(ImmutableDictionary<string, IModuleIdentity>.Empty);
-            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty))
+            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()))
                 .Returns(Task.FromResult(testPlan));
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(It.IsAny<ModuleSet>(), currentSet))
                 .Returns(Task.FromResult((IImmutableDictionary<string, IModuleIdentity>)ImmutableDictionary<string, IModuleIdentity>.Empty));
@@ -580,7 +580,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             await agent.ReconcileAsync(token);
 
             mockEnvironment.Verify(env => env.GetModulesAsync(token), Times.Once());
-            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty), Times.Once());
+            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()), Times.Once());
             mockPlanRunner.VerifyAll();
             mockReporter.VerifyAll();
         }
@@ -622,7 +622,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
                 .ReturnsAsync(currentSet);
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(desiredSet, currentSet))
                 .ReturnsAsync(ImmutableDictionary<string, IModuleIdentity>.Empty);
-            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty))
+            mockPlanner.Setup(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()))
                 .Returns(Task.FromResult(testPlan));
             mockModuleIdentityLifecycleManager.Setup(m => m.GetModuleIdentitiesAsync(It.IsAny<ModuleSet>(), currentSet))
                 .Returns(Task.FromResult((IImmutableDictionary<string, IModuleIdentity>)ImmutableDictionary<string, IModuleIdentity>.Empty));
@@ -639,7 +639,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Test
             await agent.ReconcileAsync(token);
 
             mockEnvironment.Verify(env => env.GetModulesAsync(token), Times.Exactly(2));
-            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty), Times.Exactly(2));
+            mockPlanner.Verify(pl => pl.PlanAsync(It.IsAny<ModuleSet>(), currentSet, runtimeInfo, ImmutableDictionary<string, IModuleIdentity>.Empty, It.IsAny<ModuleSet>()), Times.Exactly(2));
             mockPlanRunner.VerifyAll();
             mockReporter.Verify(r => r.ReportAsync(token, It.IsAny<ModuleSet>(), It.IsAny<IRuntimeInfo>(), It.IsAny<long>(), It.IsAny<DeploymentStatus>()), Times.Exactly(2));
             Assert.Equal(DeploymentStatusCode.Failed, statuses[0]);
