@@ -72,10 +72,12 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
 
         public async Task<Plan> PlanAsync(
             ModuleSet desired,
-            ModuleSet current,
+            ModuleSet current, // Set of containers currently existing
             IRuntimeInfo runtimeInfo,
-            IImmutableDictionary<string, IModuleIdentity> moduleIdentities)
+            IImmutableDictionary<string, IModuleIdentity> moduleIdentities,
+            ModuleSet previouslyApplied)
         {
+            previouslyApplied = previouslyApplied ?? ModuleSet.Empty;
             Events.LogDesired(desired);
             Events.LogCurrent(current);
 
@@ -109,7 +111,7 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                     .ToArray());
                 processedDesiredMatchingCurrentModules.UnionWith(desiredMatchingCurrentModules.Select(x => x.Key));
 
-                (IEnumerable<ICommand> upfrontImagePullCommands, IEnumerable<ICommand> commands) = await this.ProcessDesiredAndCurrentSets(priorityBasedDesiredSet, priorityBasedCurrentSet, runtimeInfo, moduleIdentities);
+                (IEnumerable<ICommand> upfrontImagePullCommands, IEnumerable<ICommand> commands) = await this.ProcessDesiredAndCurrentSets(priorityBasedDesiredSet, priorityBasedCurrentSet, runtimeInfo, moduleIdentities, previouslyApplied);
                 upfrontImagePullPlan.AddRange(upfrontImagePullCommands);
                 plan.AddRange(commands);
             }
@@ -126,7 +128,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
             ModuleSet desired,
             ModuleSet current,
             IRuntimeInfo runtimeInfo,
-            IImmutableDictionary<string, IModuleIdentity> moduleIdentities)
+            IImmutableDictionary<string, IModuleIdentity> moduleIdentities,
+            ModuleSet previouslyApplied)
         {
             // extract list of modules that need attention
             (IList<IModule> added, IList<IModule> updateDeployed, IList<IModule> desiredStatusChanged, IList<IRuntimeModule> updateStateChanged, IList<IRuntimeModule> removed, IList<IRuntimeModule> deadModules, IList<IRuntimeModule> runningGreat) = this.ProcessDiff(desired, current);
@@ -152,7 +155,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                 moduleIdentities,
                 runtimeInfo,
                 current,
-                m => this.commandFactory.CreateAsync(m, runtimeInfo));
+                m => this.commandFactory.CreateAsync(m, runtimeInfo),
+                previouslyApplied);
 
             (IEnumerable<ICommand> upfrontPullCommandsForUpdated, IEnumerable<ICommand> updatedCommands) = await this.ProcessAddedUpdatedModules(
                 updateDeployed,
@@ -163,7 +167,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                 {
                     current.TryGetModule(m.Module.Name, out IModule currentModule);
                     return this.commandFactory.UpdateAsync(currentModule, m, runtimeInfo);
-                });
+                },
+                previouslyApplied);
 
             // Get commands to start / stop modules whose desired status has changed.
             IList<(ICommand command, string module)> desiredStatedChangedCommands = await this.ProcessDesiredStatusChangedModules(desiredStatusChanged, current);
@@ -298,7 +303,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
             IImmutableDictionary<string, IModuleIdentity> moduleIdentities,
             IRuntimeInfo runtimeInfo,
             ModuleSet currentModules,
-            Func<IModuleWithIdentity, Task<ICommand>> createUpdateCommandMaker)
+            Func<IModuleWithIdentity, Task<ICommand>> createUpdateCommandMaker,
+            ModuleSet previouslyApplied)
         {
             var upfrontPullTasks = new List<Task<ICommand>>();
             var nonPullGroupTasks = new List<Task<ICommand[]>>();
@@ -380,6 +386,16 @@ namespace Microsoft.Azure.Devices.Edge.Agent.Core.Planner
                             && (runtimeModule.RuntimeStatus == ModuleStatus.Running || runtimeModule.RuntimeStatus == ModuleStatus.Unhealthy))
                         {
                             nonPullTasks.Add(this.commandFactory.StopAsync(runtimeModule));
+                        }
+                    }
+                    else if (!shouldApply && runtimeModule == null && previouslyApplied.TryGetModule(module.Name, out IModule previousModule))
+                    {
+                        // The container was removed while its update is deferred. Recreate it from the previously
+                        // applied definition; the update is applied later as usual.
+                        nonPullTasks.Add(this.commandFactory.CreateAsync(new ModuleWithIdentity(previousModule, moduleIdentity), runtimeInfo));
+                        if (previousModule.DesiredStatus == ModuleStatus.Running)
+                        {
+                            nonPullTasks.Add(this.commandFactory.StartAsync(previousModule));
                         }
                     }
 
