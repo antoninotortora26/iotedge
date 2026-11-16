@@ -52,6 +52,8 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
         readonly Option<X509Certificate2> manifestTrustBundle;
         readonly TimeSpan twinPullOnConnectThrottleTime;
         readonly IUpdateScheduleManager updateScheduleManager;
+        readonly object reportedStatusLock = new object();
+        readonly Dictionary<string, ModuleUpdateStatus> lastReportedStatuses = new Dictionary<string, ModuleUpdateStatus>();
 
         Option<TwinCollection> desiredProperties;
         Option<TwinCollection> reportedProperties;
@@ -528,13 +530,27 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
             try
             {
                 var moduleStatuses = this.updateScheduleManager.GetModuleUpdateStatuses();
+                var changedStatuses = new Dictionary<string, ModuleUpdateStatus>();
+                lock (this.reportedStatusLock)
+                {
+                    foreach (var kvp in moduleStatuses)
+                    {
+                        // Report only the statuses that differ from the last ones successfully reported
+                        if (!this.lastReportedStatuses.TryGetValue(kvp.Key, out ModuleUpdateStatus last)
+                            || last.State != kvp.Value.State
+                            || last.UpdateMode != kvp.Value.UpdateMode)
+                        {
+                            changedStatuses[kvp.Key] = kvp.Value;
+                        }
+                    }
+                }
 
-                if (moduleStatuses.Count > 0)
+                if (changedStatuses.Count > 0)
                 {
                     var patch = new TwinCollection();
                     var modulesPatch = new TwinCollection();
 
-                    foreach (var kvp in moduleStatuses)
+                    foreach (var kvp in changedStatuses)
                     {
                         string moduleName = kvp.Key;
                         var status = kvp.Value;
@@ -550,9 +566,22 @@ namespace Microsoft.Azure.Devices.Edge.Agent.IoTHub
                     }
 
                     patch["modules"] = modulesPatch;
-                    await this.UpdateReportedPropertiesAsync(patch);
+                    if (await this.UpdateReportedPropertiesAsync(patch)) // Update the last reported properties only if it succeeded
+                    {
+                        lock (this.reportedStatusLock)
+                        {
+                            foreach (var kvp in changedStatuses)
+                            {
+                                this.lastReportedStatuses[kvp.Key] = new ModuleUpdateStatus
+                                {
+                                    State = kvp.Value.State,
+                                    UpdateMode = kvp.Value.UpdateMode
+                                };
+                            }
+                        }
+                    }
 
-                    Events.ModuleUpdateStatusSynced(moduleStatuses.Count);
+                    Events.ModuleUpdateStatusSynced(changedStatuses.Count);
                 }
             }
             catch (Exception ex)
